@@ -1,0 +1,17 @@
+# Build output
+.build/
+build/
+.swiftpm/
+*.xcodeproj
+DerivedData/
+
+# The Companion module is its own repo (companion-module-rustedroof-keypoint-osc)
+companion-module/
+
+# Spike test decks and media (large, local only)
+spike/**/*.mov
+spike/**/*.pptx
+spike/**/*.key
+spike/**/~$*
+
+.DS_Store
