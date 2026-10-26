@@ -7,6 +7,8 @@ It comes with its own Companion module, [companion-module-rustedroof-keypoint-os
 - Full action and feedback list, per app: [docs/osc.md](docs/osc.md)
 - What PowerPoint and Keynote expose, and the workarounds used: [docs/capabilities.md](docs/capabilities.md)
 
+**Download:** see the [install guide](docs/INSTALL.md) for the ready-to-run app and Companion module from [Releases](https://github.com/BasilChessman/KeyPoint-OSC/releases). Building from source is only needed for development.
+
 ## How it works
 
 KeyPoint OSC listens for OSC over UDP and drives the presentation apps through AppleScript. It reads the show state a few times a second and sends feedback when something changes. It picks the app automatically: the one with a show running, otherwise the one used most recently. You can also fix the choice in the menu. It never launches an app on its own.
@@ -71,7 +73,7 @@ scripts/test.sh               # unit tests (works without Xcode)
 KEYPOINT_LIVE=1 scripts/test.sh --filter Live   # times polls against the running PowerPoint
 ```
 
-Run `scripts/make-dev-cert.sh` once to create a self-signed "KeyPoint OSC Development" signing identity in the login keychain. `build-app.sh` uses it automatically, so Accessibility and Automation permissions survive rebuilds; with ad-hoc signing they're lost on every build. For distribution, sign with a Developer ID (`SIGN_ID="Developer ID Application: …" scripts/build-app.sh`) and notarize.
+Run `scripts/make-dev-cert.sh` once to create a self-signed "KeyPoint OSC Development" signing identity in the login keychain. `build-app.sh` uses it automatically, so Accessibility and Automation permissions survive rebuilds; with ad-hoc signing they're lost on every build. To publish a release (universal app plus Companion module, on GitHub Releases): `scripts/release.sh` (or `--dry-run` to only build). For notarized distribution, sign with a Developer ID (`SIGN_ID="Developer ID Application: …" scripts/build-app.sh`) and notarize.
 
 Development tools:
 
