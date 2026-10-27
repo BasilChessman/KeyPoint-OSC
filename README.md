@@ -33,9 +33,9 @@ Use the **KeyPoint OSC** module ([companion-module-rustedroof-keypoint-osc](http
 
 1. Build the package from that repo: `npm install && npm run package`. This creates `rustedroof-keypoint-osc-0.1.0.tgz`.
 2. In the Companion web interface, open **Modules**, choose **Import module package**, and pick the `.tgz`.
-3. Add a **KeyPoint OSC** connection. Enter this Mac's IP (shown in the KeyPoint menu as "This Mac") and leave the port at 35551.
+3. Add a **KeyPoint OSC** connection. Enter this Mac's IP (shown in the KeyPoint menu as "This Mac"), send port 35551, and a receive port of your choice, different for each KeyPoint connection (0 = any free port).
 
-KeyPoint answers the module directly at the address and port it sends from, so the module needs no feedback settings, and other modules (including Zinc: OSCPoint) can use port 35550 at the same time. See the module's `companion/HELP.md` for its actions, feedbacks, variables and presets.
+KeyPoint replies to each module connection at the address and port it sends from (its receive port), so no feedback settings are needed in KeyPoint, several Companion connections and Macs can run side by side, and other modules (including Zinc: OSCPoint) can keep using port 35550. See the module's `companion/HELP.md` for its actions, feedbacks, variables and presets.
 
 **Zinc: OSCPoint module** (still supported): point it at this Mac, port 35551, feedback port 35550. In the KeyPoint menu, set **Feedback to** to the Companion computer's IP, and **Feedback format** to **OSCPoint compatible**.
 

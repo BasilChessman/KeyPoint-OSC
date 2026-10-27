@@ -25,7 +25,12 @@ Updates keep these permissions, as long as the app comes from these releases.
 
 1. Download `rustedroof-keypoint-osc-<version>.tgz` from the same release.
 2. In the Companion web interface, open **Modules**, choose **Import module package**, and select the `.tgz`.
-3. Under **Connections**, add **KeyPoint OSC**. Enter the presentation Mac's IP address (shown in the KeyPoint menu as **This Mac**) and leave the port at **35551**.
+3. Under **Connections**, add **KeyPoint OSC**, and enter:
+   - **Mac IP address**: the presentation Mac's IP (shown in the KeyPoint menu as **This Mac**).
+   - **Send port**: **35551** (KeyPoint's listen port).
+   - **Receive port**: a free UDP port on the Companion computer for KeyPoint's replies, different for each KeyPoint connection (e.g. 35560, 35561, …). 0 picks one automatically.
+
+   For several presentation Macs, add one connection per Mac, each with its own receive port.
 4. The connection turns green when KeyPoint answers. Presets are under **Buttons > Presets > KeyPoint OSC**.
 
 ## Updating
