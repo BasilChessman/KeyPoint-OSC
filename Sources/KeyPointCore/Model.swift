@@ -47,16 +47,27 @@ public enum MediaState: String, Sendable, Equatable {
 
 public struct MediaInfo: Equatable, Sendable {
     public var state: MediaState
-    /// Playhead position in ms.
+    /// Playhead position in ms, counted from the trimmed start.
     public var position: Int
-    /// Clip duration in ms, if the backend can find it.
+    /// Length of the media file in ms, if the backend can find it.
     public var duration: Int?
+    /// Trimmed off the start and end of the file (PowerPoint's Trim Video), in ms.
+    public var trimStart: Int
+    public var trimEnd: Int
 
-    public init(state: MediaState, position: Int, duration: Int? = nil) {
+    public init(state: MediaState, position: Int, duration: Int? = nil, trimStart: Int = 0, trimEnd: Int = 0) {
         self.state = state
         self.position = position
         self.duration = duration
+        self.trimStart = trimStart
+        self.trimEnd = trimEnd
     }
+
+    /// What plays: the file minus the trims.
+    public var trimmedDuration: Int? { duration.map { max($0 - trimStart - trimEnd, 0) } }
+
+    /// Time left until the clip ends.
+    public var remaining: Int? { trimmedDuration.map { max($0 - position, 0) } }
 }
 
 public struct SectionInfo: Equatable, Sendable, Codable {

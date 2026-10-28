@@ -131,6 +131,40 @@ import Testing
         #expect(o["/oscpoint/app"] == nil && o["/oscpoint/slideshow/overlay"] == nil)
     }
 
+    func mediaSnapshot(slide: Int, _ media: MediaInfo?) -> BackendSnapshot {
+        var snap = snapshot(slide: slide)
+        snap.show?.media = media
+        return snap
+    }
+
+    @Test func mediaDurationAndTrims() {
+        let media = MediaInfo(state: .playing, position: 4000, duration: 59078, trimStart: 10000, trimEnd: 20000)
+        let v = values(FeedbackPublisher().stateMessages(mediaSnapshot(slide: 4, media), context: allCaps))
+        #expect(v["/oscpoint/slideshow/media/duration"] == [.int(59078)])
+        #expect(v["/oscpoint/slideshow/media/durationtrimmed"] == [.int(29078)])
+        #expect(v["/oscpoint/slideshow/media/startpoint"] == [.int(10000)])
+        #expect(v["/oscpoint/slideshow/media/endpoint"] == [.int(39078)])
+        #expect(v["/oscpoint/slideshow/media/remaining"] == [.int(25078)])
+    }
+
+    @Test func keypointClearsMediaValues() {
+        let kp = FeedbackPublisher(prefix: "/keypoint")
+        let playing = MediaInfo(state: .playing, position: 1000, duration: 5000)
+        _ = kp.update(mediaSnapshot(slide: 4, playing), context: allCaps)
+        // Length not known yet for another clip: cleared rather than left over.
+        let unknown = values(kp.update(mediaSnapshot(slide: 5, MediaInfo(state: .notready, position: 0)), context: allCaps))
+        #expect(unknown["/keypoint/slideshow/media/remaining"] == [.string("")])
+        // No media: empty state, and the next clip's values are all resent.
+        let none = values(kp.update(mediaSnapshot(slide: 6, nil), context: allCaps))
+        #expect(none["/keypoint/slideshow/media/state"] == [.string("")])
+        let back = values(kp.update(mediaSnapshot(slide: 4, playing), context: allCaps))
+        #expect(back["/keypoint/slideshow/media/position"] == [.int(1000)])
+        #expect(back["/keypoint/slideshow/media/remaining"] == [.int(4000)])
+        // The OSCPoint format is unchanged: nothing sent for a slide without media.
+        let osc = values(FeedbackPublisher().stateMessages(mediaSnapshot(slide: 6, nil), context: allCaps))
+        #expect(osc["/oscpoint/slideshow/media/state"] == nil)
+    }
+
     @Test func jsonEscaping() {
         let v = JSONValue.object([("k", .string("a\"b\\c\n✓😀"))])
         #expect(v.serialized() == #"{"k":"a\"b\\c\n✓😀"}"#)

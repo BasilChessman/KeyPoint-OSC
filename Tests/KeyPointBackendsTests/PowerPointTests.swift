@@ -146,3 +146,101 @@ struct DumpScripts {
         }
     }
 }
+
+@Suite struct MediaDurationTests {
+    @Test func partPaths() {
+        #expect(PPTXMedia.resolve("slides/slide2.xml", from: "ppt/presentation.xml") == "ppt/slides/slide2.xml")
+        #expect(PPTXMedia.resolve("../media/media%201.mov", from: "ppt/slides/slide2.xml") == "ppt/media/media 1.mov")
+        #expect(PPTXMedia.resolve("/ppt/media/a.mp4", from: "ppt/slides/slide2.xml") == "ppt/media/a.mp4")
+        #expect(PPTXMedia.relsPath(for: "ppt/slides/slide2.xml") == "ppt/slides/_rels/slide2.xml.rels")
+        #expect(PPTXMedia.externalPath("file:///Users/me/Clip%20A.mov", deckPath: "/x/D.pptx") == "/Users/me/Clip A.mov")
+        #expect(PPTXMedia.externalPath("Clips/A.mov", deckPath: "/x/D.pptx") == "/x/Clips/A.mov")
+        #expect(PPTXMedia.externalPath("https://youtube.com/watch?v=1", deckPath: "/x/D.pptx") == nil)
+    }
+
+    /// A two-slide deck: slide order differs from file names, slide 2 has a trimmed 1.5 s WAV.
+    @Test func readsEmbeddedClipAndTrim() throws {
+        let deck = try Self.makeDeck(trim: #"<p14:trim st="200" end="300.5"/>"#)
+        defer { try? FileManager.default.removeItem(at: deck.deletingLastPathComponent()) }
+        #expect(try PPTXMedia.media(deckPath: deck.path, slide: 1) == nil)
+        let media = try PPTXMedia.media(deckPath: deck.path, slide: 2)
+        #expect(media == .init(source: .entry("ppt/media/media1.wav"), trimStart: 200, trimEnd: 301))
+        let clip = PPTXMedia.clip(deckPath: deck.path, slide: 2)
+        #expect(clip?.fileDuration == 1500)
+        #expect(clip?.duration == 999)
+        #expect(PPTXMedia.clip(deckPath: deck.path, slide: 3) == nil)
+    }
+
+    @Test func resolverCachesInBackground() throws {
+        let deck = try Self.makeDeck(trim: "")
+        defer { try? FileManager.default.removeItem(at: deck.deletingLastPathComponent()) }
+        let resolver = MediaDurationResolver()
+        #expect(resolver.clip(deckPath: deck.path, slide: 2) == nil) // started, not done
+        resolver.drain()
+        #expect(resolver.clip(deckPath: deck.path, slide: 2)?.duration == 1500)
+        #expect(resolver.clip(deckPath: "/no/such.pptx", slide: 2) == nil)
+    }
+
+    static func makeDeck(trim: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kp-deck-\(UUID().uuidString)")
+        let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        let pkg = "http://schemas.openxmlformats.org/package/2006/relationships"
+        let p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+        let a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        let p14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+        let files: [String: Data] = [
+            "ppt/presentation.xml": Data(#"<p:presentation xmlns:p="\#(p)" xmlns:r="\#(r)"><p:sldIdLst><p:sldId id="256" r:id="rId7"/><p:sldId id="257" r:id="rId3"/></p:sldIdLst></p:presentation>"#.utf8),
+            "ppt/_rels/presentation.xml.rels": Data(#"<Relationships xmlns="\#(pkg)"><Relationship Id="rId3" Type="x" Target="slides/slide1.xml"/><Relationship Id="rId7" Type="x" Target="slides/slide2.xml"/></Relationships>"#.utf8),
+            "ppt/slides/slide2.xml": Data(#"<p:sld xmlns:p="\#(p)"><p:cSld><p:spTree/></p:cSld></p:sld>"#.utf8),
+            "ppt/slides/_rels/slide2.xml.rels": Data(#"<Relationships xmlns="\#(pkg)"/>"#.utf8),
+            "ppt/slides/slide1.xml": Data(#"""
+                <p:sld xmlns:p="\#(p)" xmlns:a="\#(a)" xmlns:r="\#(r)"><p:cSld><p:spTree>
+                <p:sp/><p:pic><p:nvPicPr><p:nvPr/></p:nvPicPr></p:pic>
+                <p:pic><p:nvPicPr><p:nvPr><a:audioFile r:link="rId2"/><p:extLst><p:ext><p14:media xmlns:p14="\#(p14)" r:embed="rId1">\#(trim)</p14:media></p:ext></p:extLst></p:nvPr></p:nvPicPr></p:pic>
+                </p:spTree></p:cSld></p:sld>
+                """#.utf8),
+            "ppt/slides/_rels/slide1.xml.rels": Data(#"<Relationships xmlns="\#(pkg)"><Relationship Id="rId1" Type="m" Target="../media/media1.wav"/><Relationship Id="rId2" Type="a" Target="../media/media1.wav"/></Relationships>"#.utf8),
+            "ppt/media/media1.wav": wav(milliseconds: 1500),
+        ]
+        let src = dir.appendingPathComponent("src")
+        for (path, data) in files {
+            let url = src.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url)
+        }
+        let deck = dir.appendingPathComponent("Deck.pptx")
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.currentDirectoryURL = src
+        zip.arguments = ["-qr", deck.path, "."]
+        try zip.run()
+        zip.waitUntilExit()
+        #expect(zip.terminationStatus == 0)
+        return deck
+    }
+
+    /// Silent 8 kHz mono 16-bit PCM.
+    static func wav(milliseconds: Int) -> Data {
+        let rate = 8000, samples = rate * milliseconds / 1000, bytes = samples * 2
+        var d = Data()
+        func u32(_ v: Int) { withUnsafeBytes(of: UInt32(v).littleEndian) { d.append(contentsOf: $0) } }
+        func u16(_ v: Int) { withUnsafeBytes(of: UInt16(v).littleEndian) { d.append(contentsOf: $0) } }
+        d.append(contentsOf: Array("RIFF".utf8)); u32(36 + bytes); d.append(contentsOf: Array("WAVEfmt ".utf8))
+        u32(16); u16(1); u16(1); u32(rate); u32(rate * 2); u16(2); u16(16)
+        d.append(contentsOf: Array("data".utf8)); u32(bytes); d.append(Data(count: bytes))
+        return d
+    }
+}
+
+/// Reads the real test deck's clip: KEYPOINT_LIVE=1 scripts/test.sh --filter SpikeDeckMedia
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["KEYPOINT_LIVE"] != nil))
+struct SpikeDeckMedia {
+    @Test func testDeckClip() throws {
+        let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../spike/powerpoint/KeyPointTest.pptx").standardized.path
+        let start = Date()
+        let clip = PPTXMedia.clip(deckPath: path, slide: 4)
+        print("SPIKE clip: \(String(describing: clip)) in \(Date().timeIntervalSince(start)) s")
+        #expect(clip != nil)
+    }
+}

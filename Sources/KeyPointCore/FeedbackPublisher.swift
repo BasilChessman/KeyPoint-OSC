@@ -37,6 +37,9 @@ public final class FeedbackPublisher {
     /// KeyPoint-only feedback (active app, capabilities, black/white) is sent only under `/keypoint`.
     var extended: Bool { prefix == Router.keypointPrefix }
 
+    static let mediaDurationPaths = ["slideshow/media/duration", "slideshow/media/durationtrimmed",
+                                     "slideshow/media/startpoint", "slideshow/media/endpoint", "slideshow/media/remaining"]
+
     /// Forget what was sent, so the next update resends everything.
     public func invalidate() {
         lastSent.removeAll()
@@ -48,6 +51,10 @@ public final class FeedbackPublisher {
         if previous?.show != nil && snapshot.show == nil {
             // Show-only feedback is resent in full when the next show starts.
             lastSent = lastSent.filter { !$0.key.hasPrefix(prefix + "/slideshow/") || $0.key == prefix + "/slideshow/state" }
+        }
+        if extended, previous?.show?.media != nil, snapshot.show?.media == nil {
+            // Clients clear media values on the empty state, so resend them all for the next clip.
+            lastSent = lastSent.filter { !$0.key.hasPrefix(prefix + "/slideshow/media/") }
         }
         previous = snapshot
         let changed = stateMessages(snapshot, context: context).filter { msg in
@@ -127,13 +134,20 @@ public final class FeedbackPublisher {
         if let media = show.media, caps.contains(.media) {
             add("slideshow/media/state", .string(media.state.rawValue))
             add("slideshow/media/position", .int(Int32(clamping: media.position)))
-            if let duration = media.duration, caps.contains(.mediaDuration) {
+            if let duration = media.duration, let trimmed = media.trimmedDuration, let remaining = media.remaining,
+               caps.contains(.mediaDuration) {
                 add("slideshow/media/duration", .int(Int32(clamping: duration)))
-                add("slideshow/media/durationtrimmed", .int(Int32(clamping: duration)))
-                add("slideshow/media/startpoint", .int(0))
-                add("slideshow/media/endpoint", .int(Int32(clamping: duration)))
-                add("slideshow/media/remaining", .int(Int32(clamping: max(duration - media.position, 0))))
+                add("slideshow/media/durationtrimmed", .int(Int32(clamping: trimmed)))
+                add("slideshow/media/startpoint", .int(Int32(clamping: media.trimStart)))
+                add("slideshow/media/endpoint", .int(Int32(clamping: max(duration - media.trimEnd, 0))))
+                add("slideshow/media/remaining", .int(Int32(clamping: remaining)))
+            } else if extended && caps.contains(.mediaDuration) {
+                // Length not known (yet): clear values left over from another clip.
+                for path in Self.mediaDurationPaths { add(path, .string("")) }
             }
+        } else if extended && caps.contains(.media) {
+            // No media on this slide: an empty state tells KeyPoint clients to clear media values.
+            add("slideshow/media/state", .string(""))
         }
         return out
     }

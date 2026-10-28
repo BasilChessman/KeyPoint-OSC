@@ -30,7 +30,7 @@ Legend: ✅ supported · ⚠️ supported with a caveat · ❌ not supported (ig
 | `slideshow/pause`, `slideshow/resume` | ✅ | ❌ |
 | `media/play`, `pause`, `playpause`, `stop` | ✅ first media item on the current slide | ❌ |
 | `media/goto/position/fromstart`, `forward`, `back [ms]` | ✅ | ❌ |
-| `media/goto/position/beforeend`, `percent` | ❌ PowerPoint doesn't expose the clip duration | ❌ |
+| `media/goto/position/beforeend [ms]`, `percent [0-100]` | ✅ once the clip length is known (see below) | ❌ |
 | `media/goto/bookmark/next`, `previous` | ✅ | ❌ |
 | `presentations/activate [name]` | ⚠️ needs Accessibility (uses the Window menu) | ✅ |
 | `files/setpath`, `list`, `open`, `close`, `close/force`, `close/save` | ✅ needs "Allow file open/close" turned on in the menu on the Mac | ✅ same |
@@ -56,7 +56,20 @@ Sent only when a value changes. `feedbacks/refresh` (or a new controller connect
 | `slideshow/notes` (ASCII, CR line breaks), `slideshow/notes-utf8` (blob) | ✅ | ✅ |
 | `slideshow/section/index`, `name`, `slidesremaining` | ✅ | ❌ |
 | `slideshow/media/state`, `position` | ✅ updated about 3 times a second while playing | ❌ |
-| `slideshow/media/duration`, `durationtrimmed`, `startpoint`, `endpoint`, `remaining` | ❌ | ❌ |
+| `slideshow/media/duration`, `durationtrimmed`, `startpoint`, `endpoint`, `remaining` | ✅ read from the saved file (see below) | ❌ |
+
+Media length (PowerPoint): PowerPoint's scripting doesn't report clip length, so KeyPoint reads it from the saved `.pptx`. It finds the slide's first video or audio item, then measures the embedded copy, or the linked file if it can reach it. This takes up to about a second the first time a slide is shown, and the result is cached until the file is saved again. Trims made in PowerPoint (Playback > Trim) are applied:
+- `duration` is the file's length.
+- `durationtrimmed` is the length that plays.
+- `startpoint` and `endpoint` are the trim points within the file.
+- `position` counts from the trimmed start, so `remaining` = `durationtrimmed` − `position`.
+
+There are three limits:
+- Unsaved changes to a video aren't seen until the deck is saved.
+- `.ppt` files and online videos have no length.
+- A linked file that can't be found has no length.
+
+Under `/keypoint`, a slide without media sends `slideshow/media/state ""`. An unknown length sends `""` for the length values, so clients can clear them.
 
 ## KeyPoint-only messages
 

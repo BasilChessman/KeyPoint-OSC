@@ -9,12 +9,14 @@ public final class PowerPointBackend: SlideBackend, @unchecked Sendable {
     public let bundleIdentifier = "com.microsoft.Powerpoint"
     public let capabilities: Set<Capability> = [
         .navigate, .gotoSlide, .sections, .hideSlides, .startShow, .endShow, .blackWhite, .pauseResume,
-        .media, .buildCount, .buildPosition, .notes, .openClose, .activatePresentation,
+        .media, .mediaDuration, .buildCount, .buildPosition, .notes, .openClose, .activatePresentation,
     ]
 
     private let runner: any ScriptRunning
     private let worker = SerialWorker(label: "keypoint.powerpoint")
     private let monitor: AppMonitor?
+    /// Clip lengths, read from the saved file (PowerPoint's scripting doesn't expose them).
+    private let clips = MediaDurationResolver()
 
     // Touched only on `worker`'s queue.
     private var structureCache: [String: (slideCount: Int, fetched: Date, hidden: [Bool], sections: [SectionInfo])] = [:]
@@ -51,7 +53,7 @@ public final class PowerPointBackend: SlideBackend, @unchecked Sendable {
             var updated = show
             updated.state = fast.state == "paused" ? .paused : .running
             updated.overlay = fast.state == "black" ? .black : fast.state == "white" ? .white : .none
-            updated.media = fast.media
+            updated.media = withClip(fast.media, slide: fast.slideIndex, presentation: show.presentationName, in: last.presentations)
             tracking.observe(slide: fast.slideIndex, buildCount: show.buildCount ?? 0)
             updated.buildPosition = tracking.position
             var snapshot = last
@@ -92,8 +94,19 @@ public final class PowerPointBackend: SlideBackend, @unchecked Sendable {
             buildPosition: tracking.position,
             buildCount: rawShow.effectCount,
             notes: rawShow.notes,
-            media: rawShow.media)
+            media: withClip(rawShow.media, slide: slide, presentation: rawShow.presentation, in: presentations))
         return BackendSnapshot(presentations: presentations, activePresentation: rawShow.presentation, show: show)
+    }
+
+    /// Adds the clip length and trims, once the background read of the saved file has them.
+    private func withClip(_ media: MediaInfo?, slide: Int, presentation name: String, in presentations: [PresentationInfo]) -> MediaInfo? {
+        guard var media, let folder = presentations.first(where: { $0.name == name })?.path, !folder.isEmpty,
+              let clip = clips.clip(deckPath: (folder as NSString).appendingPathComponent(name), slide: slide)
+        else { return media }
+        media.duration = clip.fileDuration
+        media.trimStart = clip.trimStart
+        media.trimEnd = clip.trimEnd
+        return media
     }
 
     private func structureSync(for name: String, slideCount: Int) throws -> (hidden: [Bool], sections: [SectionInfo]) {
@@ -173,8 +186,11 @@ public final class PowerPointBackend: SlideBackend, @unchecked Sendable {
             case .forward(let ms): try media("set current position of pl to (current position of pl) + \(max(ms, 0))")
             case .back(let ms):
                 try media("set p to (current position of pl) - \(max(ms, 0))\nif p < 0 then set p to 0\nset current position of pl to p")
-            case .beforeEnd, .percent:
-                throw BackendError.unsupported(.mediaDuration) // PowerPoint doesn't expose clip duration
+            case .beforeEnd(let ms):
+                try media("set current position of pl to \(max(try clipLength() - max(ms, 0), 0))")
+            case .percent(let percent):
+                let fraction = min(max(percent.isFinite ? percent : 0, 0), 100) / 100
+                try media("set current position of pl to \(Int((Double(try clipLength()) * fraction).rounded()))")
             }
         case .mediaBookmarkNext:
             try media("go to next bookmark for player pl")
@@ -210,6 +226,12 @@ public final class PowerPointBackend: SlideBackend, @unchecked Sendable {
         case "NOMEDIA": throw BackendError.notFound("media on current slide")
         default: break
         }
+    }
+
+    /// Playable length of the current slide's clip, from the last poll.
+    private func clipLength() throws -> Int {
+        guard let length = lastFull?.show?.media?.trimmedDuration else { throw BackendError.notFound("media length") }
+        return length
     }
 
     private func setOverlay(_ kind: String, on: Bool?) throws {
