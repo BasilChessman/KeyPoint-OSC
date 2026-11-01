@@ -9,6 +9,114 @@ It comes with its own Companion module, [companion-module-rustedroof-keypoint-os
 
 **Download:** see the [install guide](docs/INSTALL.md) for the ready-to-run app and Companion module from [Releases](https://github.com/BasilChessman/KeyPoint-OSC/releases). Building from source is only needed for development.
 
+## Features
+
+With the KeyPoint OSC Companion module, you can:
+
+- Run a show from Companion: next/previous, go to a slide or section, start and end the show, black or white screen, and pause.
+- Show live show info on buttons: slide counter, slides remaining, builds, notes, section, and media time remaining.
+- Use PowerPoint and Keynote. KeyPoint picks the app with a show running, or you can fix the choice.
+- Control several Macs from one Companion, with one connection per Mac.
+- Use ready-made presets: navigation, show control, info displays, a media countdown that turns amber at 30 s and red at 10 s, and app selection.
+
+Items marked (PowerPoint) don't work in Keynote. See [What works in each app](#what-works-in-each-app).
+
+### Actions
+
+| Action | Options |
+|---|---|
+| Next / Previous (slide or build) | |
+| Go to slide | Slide number. PowerPoint restarts the show at that slide, with a brief flicker. |
+| Go to first slide / Go to last slide | |
+| Go to section (PowerPoint) | Section name (case sensitive) |
+| Hide / unhide slide | Slide number, hide or unhide |
+| Start slide show | From slide (0 = the beginning) |
+| Start slide show from current slide | |
+| Start slide show from section (PowerPoint) | Section name |
+| End slide show | |
+| Black screen / White screen | On, off or toggle |
+| Pause / resume auto-advance (PowerPoint) | Pause or resume |
+| Media: play / pause / stop (PowerPoint) | Play/pause toggle, play, pause or stop. Acts on the first video or audio item on the slide. |
+| Media: seek (PowerPoint) | Forward by, back by, to a position from the start, or to a position before the end (ms) |
+| Media: seek to percent (PowerPoint) | 0–100 |
+| Media: next / previous bookmark (PowerPoint) | Next or previous |
+| Switch to open presentation | File name. PowerPoint needs Accessibility. |
+| Select app | Automatic, PowerPoint or Keynote |
+| Files: set active folder | Folder, relative to the home folder on the Mac |
+| Files: refresh file list | |
+| Files: open presentation | File name in the active folder |
+| Files: close presentation | File name (empty = the active presentation). For unsaved changes: don't close, discard them, or save first. |
+| KeyPoint: enable / disable OSC actions | While disabled, KeyPoint ignores everything except "enable". |
+| KeyPoint: refresh feedback | Resends all values |
+
+The file actions only work after **Allow file open/close over OSC** is turned on in the KeyPoint menu on the Mac.
+
+### Feedbacks
+
+| Feedback | Options | Default style |
+|---|---|---|
+| Connected to KeyPoint | | Green |
+| Slide show state | Show running (or paused), running, paused, not in a show | Green |
+| Black / white screen is on | Black or white | Red |
+| Current slide is | Slide number | Green |
+| Current slide has builds remaining (PowerPoint) | | Amber |
+| On the last visible slide | | Amber |
+| Current section is (PowerPoint) | Section name | Green |
+| Current presentation is | File name | Green |
+| App in use | PowerPoint, Keynote, none open | Green |
+| Media state (PowerPoint) | Playing, paused, stopped | Green |
+| Media ending soon (PowerPoint) | Seconds remaining, only while playing | Red |
+| Current app supports | A feature, for example media control, sections, black/white screen. Use it to grey out buttons the app in use can't do. | Green |
+| File access is enabled on the Mac | | Green |
+
+### Variables
+
+Use these as `$(keypoint:name)`, with your connection's label in place of `keypoint`.
+
+| Variable | Value |
+|---|---|
+| `connected` | Connected to KeyPoint (true/false) |
+| `version` | KeyPoint OSC version |
+| `app` | App in use (`powerpoint`, `keynote`, `none`) |
+| `presentation_name` | Presentation file name |
+| `presentations` | Open presentations, comma separated |
+| `slide_count` | Number of slides |
+| `slide_count_visible` | Number of slides, not counting hidden ones |
+| `show_state` | `edit`, `running` or `paused` |
+| `current_slide` | Current slide number |
+| `slides_remaining` | Visible slides after the current one |
+| `build_position` | Builds shown on the current slide |
+| `build_count` | Builds on the current slide (PowerPoint) |
+| `build_remaining` | Builds left on the current slide (PowerPoint) |
+| `notes` | Presenter notes of the current slide |
+| `section_index` | Current section number (PowerPoint) |
+| `section_name` | Current section name (PowerPoint) |
+| `section_slides_remaining` | Visible slides left in the section (PowerPoint) |
+| `overlay` | Black/white screen (`none`, `black`, `white`) |
+| `media_state` | `playing`, `paused`, `stopped`, `notready` |
+| `media_position`, `media_position_display` | Media position in ms, and as m:ss |
+| `media_duration`, `media_duration_display` | Media length after trimming, in ms and as m:ss (PowerPoint) |
+| `media_remaining`, `media_remaining_display` | Media time remaining, in ms and as m:ss (PowerPoint) |
+| `files_enabled` | File access enabled on the Mac (true/false) |
+| `active_folder` | Active folder for the file actions |
+| `files` | Presentations in the active folder, after "Files: refresh file list" |
+| `last_event` | Last event from KeyPoint, for example `slideshow_begin` |
+
+### What works in each app
+
+| | PowerPoint | Keynote |
+|---|---|---|
+| Next / previous, first / last, go to slide | ✅ | ✅ |
+| Sections (go to, start from, variables) | ✅ | — |
+| Black / white screen | ✅ | ✅ (needs Accessibility) |
+| Pause / resume auto-advance | ✅ | — |
+| Media play / pause / stop / seek | ✅ | — |
+| Media length and time remaining | ✅ from the saved file | — |
+| Build count and builds remaining | ✅ | — |
+| Notes, slide counts, slides remaining | ✅ | ✅ |
+
+PowerPoint doesn't report a video's length, so KeyPoint reads it from the saved file, including any trims. Save the deck after adding or trimming a video. For the OSC addresses behind all of this, see [docs/osc.md](docs/osc.md).
+
 ## How it works
 
 KeyPoint OSC listens for OSC over UDP and drives the presentation apps through AppleScript. It reads the show state a few times a second and sends feedback when something changes. It picks the app automatically: the one with a show running, otherwise the one used most recently. You can also fix the choice in the menu. It never launches an app on its own.
