@@ -13,34 +13,70 @@ struct MediaClip: Equatable, Sendable {
     var duration: Int { max(fileDuration - trimStart - trimEnd, 0) }
 }
 
-/// PowerPoint's scripting doesn't expose clip length, so read it from the saved .pptx:
-/// find the slide's first media item, extract it, and ask AVFoundation. Lookups never block;
-/// the first call for a slide starts a background read and returns nil until it's done.
+/// Clip lengths, read from the saved presentation file: neither app's scripting exposes them.
+typealias MediaDurationResolver = DeckFileCache<MediaClip>
+
+/// Values read from a saved presentation file (`lookup` does the reading). Lookups never block:
+/// the first call for an item starts a background read and returns nil until it's done.
 /// Results are cached per file version, so a re-save is picked up.
-final class MediaDurationResolver: @unchecked Sendable {
+final class DeckFileCache<Value: Sendable>: @unchecked Sendable {
     private struct Key: Hashable {
         var path: String
         var modified: Date
-        var slide: Int
+        var item: String
     }
 
+    /// Reads the clip `item` (a slide number, a file name: whatever the backend uses) from the deck at a path.
+    typealias Lookup = @Sendable (_ deckPath: String, _ item: String) -> Value?
+
+    private let read: Lookup
     private let lock = NSLock()
-    private var cache: [Key: MediaClip?] = [:] // a nil value: looked, found nothing usable
+    private var cache: [Key: Value?] = [:] // a nil value: looked, found nothing usable
     private var pending: Set<Key> = []
     private let queue = DispatchQueue(label: "keypoint.media-duration", qos: .utility)
 
+    init(lookup: @escaping Lookup) {
+        self.read = lookup
+    }
+
+    /// Keynote: movie timing per slide, from a saved .key (`item` is ignored).
+    static func keynoteDeck() -> DeckFileCache<KeynoteDeckMedia> {
+        DeckFileCache<KeynoteDeckMedia> { path, _ in KeynoteFile.media(deckPath: path) }
+    }
+
+    /// PowerPoint: the first media item on slide `slide` (1-based) of a saved .pptx.
+    static func pptx() -> MediaDurationResolver {
+        MediaDurationResolver { path, item in Int(item).flatMap { PPTXMedia.clip(deckPath: path, slide: $0) } }
+    }
+
+    /// Keynote: the movie or audio file named `item`, stored in a saved .key.
+    static func keynote() -> MediaDurationResolver {
+        MediaDurationResolver { path, item in KeynoteMedia.clip(deckPath: path, fileName: item) }
+    }
+
     /// The media clip on slide `slide` (1-based) of the saved file at `path`, if known yet.
-    func clip(deckPath path: String, slide: Int) -> MediaClip? {
-        guard !path.isEmpty, slide > 0,
+    func clip(deckPath path: String, slide: Int) -> Value? {
+        slide > 0 ? clip(deckPath: path, item: String(slide)) : nil
+    }
+
+    /// The clip `item` of the saved file at `path`, if known yet.
+    func clip(deckPath path: String, item: String) -> Value? {
+        lookup(deckPath: path, item: item) ?? nil
+    }
+
+    /// `nil` while the background read is still running; `.some(nil)` if it found nothing
+    /// (or there's no saved file).
+    func lookup(deckPath path: String, item: String) -> Value?? {
+        guard !path.isEmpty, !item.isEmpty,
               let modified = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
-        else { return nil }
-        let key = Key(path: path, modified: modified, slide: slide)
+        else { return .some(nil) }
+        let key = Key(path: path, modified: modified, item: item)
         lock.lock()
         defer { lock.unlock() }
         if let hit = cache[key] { return hit }
         if pending.insert(key).inserted {
             queue.async {
-                let clip = PPTXMedia.clip(deckPath: path, slide: slide)
+                let clip = self.read(path, item)
                 self.lock.lock()
                 self.cache[key] = .some(clip)
                 self.pending.remove(key)
@@ -73,7 +109,7 @@ enum PPTXMedia {
 
     static func clip(deckPath: String, slide: Int) -> MediaClip? {
         guard let media = try? media(deckPath: deckPath, slide: slide),
-              let ms = duration(of: media.source, deckPath: deckPath)
+              let ms = MediaFile.duration(of: media.source, deckPath: deckPath)
         else { return nil }
         return MediaClip(fileDuration: ms, trimStart: media.trimStart, trimEnd: media.trimEnd)
     }
@@ -201,23 +237,26 @@ enum PPTXMedia {
         let decoded = target.removingPercentEncoding ?? target
         return decoded.hasPrefix("/") ? decoded : ((folder as NSString).appendingPathComponent(decoded) as NSString).standardizingPath
     }
+}
 
-    // MARK: Duration
-
-    private static func duration(of source: Media.Source, deckPath: String) -> Int? {
+/// Measures media files with AVFoundation.
+enum MediaFile {
+    static func duration(of source: PPTXMedia.Media.Source, deckPath: String) -> Int? {
         switch source {
-        case .file(let path):
-            return assetDuration(URL(fileURLWithPath: path))
-        case .entry(let entry):
-            // AVFoundation needs a file, so extract the clip to a temporary one.
-            let ext = (entry as NSString).pathExtension
-            let temp = FileManager.default.temporaryDirectory
-                .appendingPathComponent("KeyPointOSC-media-\(UUID().uuidString)")
-                .appendingPathExtension(ext.isEmpty ? "mov" : ext)
-            defer { try? FileManager.default.removeItem(at: temp) }
-            guard (try? Zip.extract(entry, from: deckPath, to: temp)) != nil else { return nil }
-            return assetDuration(temp)
+        case .file(let path): assetDuration(URL(fileURLWithPath: path))
+        case .entry(let entry): duration(ofEntry: entry, inArchive: deckPath)
         }
+    }
+
+    /// AVFoundation needs a file, so extract the zip entry to a temporary one.
+    static func duration(ofEntry entry: String, inArchive archive: String) -> Int? {
+        let ext = (entry as NSString).pathExtension
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("KeyPointOSC-media-\(UUID().uuidString)")
+            .appendingPathExtension(ext.isEmpty ? "mov" : ext)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        guard (try? Zip.extract(entry, from: archive, to: temp)) != nil else { return nil }
+        return assetDuration(temp)
     }
 
     static func assetDuration(_ url: URL) -> Int? {
@@ -234,6 +273,46 @@ enum PPTXMedia {
     }
 }
 
+/// Finds a Keynote movie or audio file in a saved .key: a zip, or (older or "package" format)
+/// a folder. Media lives in `Data/`, renamed with a number: `Clip.mov` is stored as `Data/Clip-9082.mov`.
+/// Keynote's movie trims aren't scriptable or readable here, so the result is the whole file.
+enum KeynoteMedia {
+    static func clip(deckPath: String, fileName: String) -> MediaClip? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: deckPath, isDirectory: &isDirectory) else { return nil }
+        let ms: Int?
+        if isDirectory.boolValue {
+            let data = (deckPath as NSString).appendingPathComponent("Data")
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: data)) ?? []
+            ms = match(fileName, in: names).flatMap { MediaFile.assetDuration(URL(fileURLWithPath: (data as NSString).appendingPathComponent($0))) }
+        } else {
+            let entries = ((try? Zip.list(deckPath)) ?? []).filter { $0.hasPrefix("Data/") && !$0.dropFirst(5).contains("/") }
+            ms = match(fileName, in: entries.map { String($0.dropFirst(5)) })
+                .flatMap { MediaFile.duration(ofEntry: "Data/" + $0, inArchive: deckPath) }
+        }
+        return ms.map { MediaClip(fileDuration: $0) }
+    }
+
+    /// The stored name for `fileName` among `names` (the contents of `Data/`).
+    static func match(_ fileName: String, in names: [String]) -> String? {
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        let stem = (fileName as NSString).deletingPathExtension
+        func parts(_ name: String) -> (stem: String, ext: String) {
+            var s = (name as NSString).deletingPathExtension
+            // Drop Keynote's "-<number>" suffix.
+            if let dash = s.lastIndex(of: "-"), s[s.index(after: dash)...].allSatisfy(\.isNumber), s.index(after: dash) < s.endIndex {
+                s = String(s[..<dash])
+            }
+            return (s, (name as NSString).pathExtension.lowercased())
+        }
+        func loose(_ s: String) -> String { s.lowercased().filter { $0.isLetter || $0.isNumber } }
+        if names.contains(fileName) { return fileName }
+        let candidates = names.filter { parts($0).ext == ext }
+        return candidates.first { parts($0).stem == stem }
+            ?? candidates.first { loose(parts($0).stem) == loose(stem) }
+    }
+}
+
 /// Minimal zip reading via the system `unzip` (Foundation has no zip API).
 enum Zip {
     struct Failed: Error {
@@ -242,34 +321,58 @@ enum Zip {
     }
 
     static func read(_ entry: String, from archive: String) throws -> Data {
+        try read(pattern: escape(entry), from: archive)
+    }
+
+    /// Every entry matching an unzip wildcard pattern, concatenated in archive order.
+    static func read(pattern: String, from archive: String) throws -> Data {
         let pipe = Pipe()
-        let process = unzip(entry, archive, output: pipe.fileHandleForWriting)
+        let process = unzip(pattern: pattern, archive, output: pipe.fileHandleForWriting)
         try process.run()
         try? pipe.fileHandleForWriting.close()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard process.terminationStatus == 0, !data.isEmpty else { throw Failed(entry: entry, status: process.terminationStatus) }
+        guard process.terminationStatus == 0, !data.isEmpty else { throw Failed(entry: pattern, status: process.terminationStatus) }
         return data
+    }
+
+    /// Entry names in the archive.
+    static func list(_ archive: String) throws -> [String] {
+        let pipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-Z1", archive]
+        process.standardOutput = pipe.fileHandleForWriting
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        try? pipe.fileHandleForWriting.close()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw Failed(entry: "", status: process.terminationStatus) }
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
     }
 
     static func extract(_ entry: String, from archive: String, to file: URL) throws {
         guard FileManager.default.createFile(atPath: file.path, contents: nil) else { throw Failed(entry: entry, status: -1) }
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
-        let process = unzip(entry, archive, output: handle)
+        let process = unzip(pattern: escape(entry), archive, output: handle)
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { throw Failed(entry: entry, status: process.terminationStatus) }
     }
 
-    private static func unzip(_ entry: String, _ archive: String, output: FileHandle) -> Process {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        // -p: to stdout; -qq: quiet. unzip treats the entry name as a wildcard pattern,
-        // so escape the pattern characters.
-        let pattern = entry.replacingOccurrences(of: "\\", with: "\\\\")
+    /// unzip treats entry names as wildcard patterns, so escape the pattern characters.
+    private static func escape(_ entry: String) -> String {
+        entry.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "*", with: "\\*")
             .replacingOccurrences(of: "?", with: "\\?")
+    }
+
+    private static func unzip(pattern: String, _ archive: String, output: FileHandle) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        // -p: to stdout; -qq: quiet.
         process.arguments = ["-p", "-qq", archive, pattern]
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice

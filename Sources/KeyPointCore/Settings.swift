@@ -38,10 +38,22 @@ public struct Settings: Codable, Equatable, Sendable {
     /// Allow bringing the presentation app to the front when an action needs it.
     public var allowActivatingApp = true
     public var feedbackFormat = FeedbackFormat.keypoint
+    /// Listen to a PerfectCue bridge, so clicker presses time Keynote movies that start on a click.
+    public var perfectCueEnabled = false
+    public var perfectCueHost = "perfectcue.local"
+    public var perfectCuePort: UInt16 = 5100
 
     public init() {}
 
     public static let portRange: ClosedRange<UInt16> = 1024...65535
+
+    /// A host name or address for the PerfectCue bridge: no spaces, slashes or URL parts.
+    public static func validHost(_ raw: String) -> String? {
+        let host = raw.trimmingCharacters(in: .whitespaces)
+        guard !host.isEmpty, host.count <= 253,
+              host.allSatisfy({ $0.isLetter || $0.isNumber || ".-:_%".contains($0) }) else { return nil }
+        return host
+    }
 
     public var activeFolderURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(activeFolder, isDirectory: true)
@@ -64,6 +76,9 @@ public struct Settings: Codable, Equatable, Sendable {
         uiScriptingEnabled = try c.decodeIfPresent(Bool.self, forKey: .uiScriptingEnabled) ?? d.uiScriptingEnabled
         allowActivatingApp = try c.decodeIfPresent(Bool.self, forKey: .allowActivatingApp) ?? d.allowActivatingApp
         feedbackFormat = try c.decodeIfPresent(FeedbackFormat.self, forKey: .feedbackFormat) ?? d.feedbackFormat
+        perfectCueEnabled = try c.decodeIfPresent(Bool.self, forKey: .perfectCueEnabled) ?? d.perfectCueEnabled
+        perfectCueHost = try c.decodeIfPresent(String.self, forKey: .perfectCueHost) ?? d.perfectCueHost
+        perfectCuePort = try c.decodeIfPresent(UInt16.self, forKey: .perfectCuePort) ?? d.perfectCuePort
     }
 }
 

@@ -26,6 +26,8 @@ public enum Capability: String, Codable, Sendable, CaseIterable {
     case pauseResume
     case media
     case mediaDuration
+    /// Media values are estimated by KeyPoint (a timer from when the slide appeared), not read from the app.
+    case mediaEstimated
     case buildCount
     case buildPosition
     case notes
@@ -54,13 +56,17 @@ public struct MediaInfo: Equatable, Sendable {
     /// Trimmed off the start and end of the file (PowerPoint's Trim Video), in ms.
     public var trimStart: Int
     public var trimEnd: Int
+    /// State and position come from KeyPoint's own timer, not from the app (Keynote).
+    public var estimated: Bool
 
-    public init(state: MediaState, position: Int, duration: Int? = nil, trimStart: Int = 0, trimEnd: Int = 0) {
+    public init(state: MediaState, position: Int, duration: Int? = nil, trimStart: Int = 0, trimEnd: Int = 0,
+                estimated: Bool = false) {
         self.state = state
         self.position = position
         self.duration = duration
         self.trimStart = trimStart
         self.trimEnd = trimEnd
+        self.estimated = estimated
     }
 
     /// What plays: the file minus the trims.

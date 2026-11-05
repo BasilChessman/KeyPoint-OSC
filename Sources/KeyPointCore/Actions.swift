@@ -80,6 +80,8 @@ public enum Command: Equatable, Sendable {
     /// Reply with `/keypoint/pong` so a controller can tell the connection is alive.
     case ping
     case selectApp(BackendMode)
+    /// Turn listening to a PerfectCue bridge on or off, optionally at a new host and port.
+    case setPerfectCue(enabled: Bool, host: String? = nil, port: UInt16? = nil)
 
     /// File commands need the local "allow file access" opt-in.
     public var needsFileAccess: Bool {

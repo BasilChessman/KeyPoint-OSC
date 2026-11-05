@@ -165,6 +165,21 @@ import Testing
         #expect(osc["/oscpoint/slideshow/media/state"] == nil)
     }
 
+    @Test func estimatedMediaWithoutMediaControl() {
+        // Keynote: no media control, but estimated values are sent, flagged under /keypoint.
+        let caps: Set<Capability> = [.navigate, .mediaDuration, .mediaEstimated]
+        let media = MediaInfo(state: .playing, position: 4000, duration: 10_000, estimated: true)
+        let kp = values(FeedbackPublisher(prefix: "/keypoint").stateMessages(mediaSnapshot(slide: 4, media), context: FeedbackContext(capabilities: caps)))
+        #expect(kp["/keypoint/slideshow/media/state"] == [.string("playing")])
+        #expect(kp["/keypoint/slideshow/media/remaining"] == [.int(6000)])
+        #expect(kp["/keypoint/slideshow/media/estimated"] == [.bool(true)])
+        let none = values(FeedbackPublisher(prefix: "/keypoint").stateMessages(mediaSnapshot(slide: 5, nil), context: FeedbackContext(capabilities: caps)))
+        #expect(none["/keypoint/slideshow/media/state"] == [.string("")])
+        let osc = values(FeedbackPublisher().stateMessages(mediaSnapshot(slide: 4, media), context: FeedbackContext(capabilities: caps)))
+        #expect(osc["/oscpoint/slideshow/media/remaining"] == [.int(6000)])
+        #expect(osc["/oscpoint/slideshow/media/estimated"] == nil)
+    }
+
     @Test func jsonEscaping() {
         let v = JSONValue.object([("k", .string("a\"b\\c\n✓😀"))])
         #expect(v.serialized() == #"{"k":"a\"b\\c\n✓😀"}"#)

@@ -16,6 +16,8 @@ struct MenuView: View {
             Divider()
             NetworkSection(engine: engine)
             Divider()
+            PerfectCueSection(engine: engine)
+            Divider()
             permissionsSection
             Divider()
             filesSection
@@ -224,6 +226,50 @@ private struct NetworkSection: View {
             }
         }
         return nil
+    }
+}
+
+/// Listening to a PerfectCue bridge, so clicker presses time Keynote movies.
+private struct PerfectCueSection: View {
+    let engine: Engine
+    @State private var host = ""
+    @State private var port = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Listen to PerfectCue bridge", isOn: Binding(
+                get: { engine.settings.perfectCueEnabled }, set: { v in apply(); engine.update { $0.perfectCueEnabled = v } }))
+                .help("Counts PerfectCue Forward/Back presses, so Keynote movies that start on a click or with a build are timed from the clicker.")
+            if engine.settings.perfectCueEnabled {
+                HStack {
+                    TextField("perfectcue.local", text: $host).onSubmit(apply)
+                    TextField("5100", text: $port).frame(width: 60).onSubmit(apply)
+                }
+                .textFieldStyle(.roundedBorder)
+                HStack(spacing: 4) {
+                    Image(systemName: engine.perfectCueConnected ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .foregroundStyle(engine.perfectCueConnected ? .green : .orange)
+                    Text(engine.perfectCueStatus).lineLimit(2)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear(perform: load)
+        .onDisappear(perform: apply)
+    }
+
+    private func load() {
+        host = engine.settings.perfectCueHost
+        port = String(engine.settings.perfectCuePort)
+    }
+
+    private func apply() {
+        engine.update { s in
+            if let h = KeyPointCore.Settings.validHost(host) { s.perfectCueHost = h }
+            if let p = UInt16(port.trimmingCharacters(in: .whitespaces)), p > 0 { s.perfectCuePort = p }
+        }
+        load()
     }
 }
 

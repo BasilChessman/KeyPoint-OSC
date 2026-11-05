@@ -77,6 +77,23 @@ public enum Router {
         switch path {
         case "ping": return .ping
         case "app/select": return args.first?.textValue.flatMap { BackendMode(rawValue: $0.lowercased()) }.map(Command.selectApp)
+        case "perfectcue/enable":
+            // Optional host and port: `/keypoint/perfectcue/enable ["host"] [port]`.
+            var host: String?
+            var port: UInt16?
+            for arg in args {
+                let text = arg.textValue?.trimmingCharacters(in: .whitespaces)
+                if text?.isEmpty == true { continue } // an empty option in Companion: keep the current value
+                if let n = arg.intValue { // a number, or text that is only digits
+                    guard (1...65535).contains(n) else { return nil }
+                    port = UInt16(n)
+                } else if let text {
+                    guard let valid = Settings.validHost(text) else { return nil }
+                    host = valid
+                }
+            }
+            return .setPerfectCue(enabled: true, host: host, port: port)
+        case "perfectcue/disable": return .setPerfectCue(enabled: false)
         default: return nil
         }
     }

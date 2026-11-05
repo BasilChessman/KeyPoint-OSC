@@ -9,6 +9,9 @@ public struct FeedbackContext: Equatable, Sendable {
     public var activeFolderFullPath: String
     /// The app being controlled, reported under the KeyPoint prefix only.
     public var app: BackendKind?
+    /// PerfectCue bridge listening, reported under the KeyPoint prefix only.
+    public var perfectCueEnabled = false
+    public var perfectCueConnected = false
 
     public init(capabilities: Set<Capability>, filesEnabled: Bool = false, activeFolder: String = "",
                 activeFolderFullPath: String = "", app: BackendKind? = nil) {
@@ -85,6 +88,8 @@ public final class FeedbackPublisher {
         add("v2/files/activefolder/fullpath", .string(context.activeFolderFullPath.oscASCII), utf8(context.activeFolderFullPath))
         if extended {
             add("app", .string(context.app?.rawValue ?? "none"))
+            add("perfectcue/enabled", .bool(context.perfectCueEnabled))
+            add("perfectcue/connected", .bool(context.perfectCueEnabled && context.perfectCueConnected))
             add("capabilities", .string(JSONValue.array(Capability.allCases.filter(caps.contains).map { .string($0.rawValue) }).serialized()))
         }
 
@@ -131,9 +136,11 @@ public final class FeedbackPublisher {
                 .int(Int32(clamping: pres.visibleSlides(after: show.currentSlide, through: section.lastSlide))))
         }
 
-        if let media = show.media, caps.contains(.media) {
+        let mediaFeedback = caps.contains(.media) || caps.contains(.mediaEstimated)
+        if let media = show.media, mediaFeedback {
             add("slideshow/media/state", .string(media.state.rawValue))
             add("slideshow/media/position", .int(Int32(clamping: media.position)))
+            if extended { add("slideshow/media/estimated", .bool(media.estimated)) }
             if let duration = media.duration, let trimmed = media.trimmedDuration, let remaining = media.remaining,
                caps.contains(.mediaDuration) {
                 add("slideshow/media/duration", .int(Int32(clamping: duration)))
@@ -145,7 +152,7 @@ public final class FeedbackPublisher {
                 // Length not known (yet): clear values left over from another clip.
                 for path in Self.mediaDurationPaths { add(path, .string("")) }
             }
-        } else if extended && caps.contains(.media) {
+        } else if extended && mediaFeedback {
             // No media on this slide: an empty state tells KeyPoint clients to clear media values.
             add("slideshow/media/state", .string(""))
         }

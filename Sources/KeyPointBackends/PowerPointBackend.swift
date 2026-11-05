@@ -16,7 +16,7 @@ public final class PowerPointBackend: SlideBackend, @unchecked Sendable {
     private let worker = SerialWorker(label: "keypoint.powerpoint")
     private let monitor: AppMonitor?
     /// Clip lengths, read from the saved file (PowerPoint's scripting doesn't expose them).
-    private let clips = MediaDurationResolver()
+    private let clips = MediaDurationResolver.pptx()
 
     // Touched only on `worker`'s queue.
     private var structureCache: [String: (slideCount: Int, fetched: Date, hidden: [Bool], sections: [SectionInfo])] = [:]

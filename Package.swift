@@ -18,6 +18,7 @@ let package = Package(
         // Small CLI for sending OSC and watching feedback during development.
         .executableTarget(name: "oscsend", dependencies: ["KeyPointCore"]),
         .testTarget(name: "KeyPointCoreTests", dependencies: ["KeyPointCore"]),
-        .testTarget(name: "KeyPointBackendsTests", dependencies: ["KeyPointBackends"]),
+        // Fixtures are read by path (#filePath), not bundled.
+        .testTarget(name: "KeyPointBackendsTests", dependencies: ["KeyPointBackends"], exclude: ["Fixtures"]),
     ]
 )

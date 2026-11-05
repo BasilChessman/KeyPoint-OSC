@@ -20,6 +20,8 @@ final class MockBackend: SlideBackend, @unchecked Sendable {
     func lastActivated() -> Date? { activated }
     func poll() async throws -> BackendSnapshot { snapshot }
     func perform(_ action: SlideAction, options: BackendOptions) async throws { performed.append(action) }
+    private(set) var clicker: [Bool] = []
+    func clickerPressed(forward: Bool, at time: Date) async { clicker.append(forward) }
 }
 
 final class RecordingSink: FeedbackSink, @unchecked Sendable {
@@ -227,5 +229,92 @@ final class RecordingSink: FeedbackSink, @unchecked Sendable {
         let (data, peer) = try #require(await iterator.next())
         #expect(data == big)
         #expect(peer.host == "127.0.0.1")
+    }
+}
+
+@MainActor @Suite struct PerfectCueEngineTests {
+    let backend = MockBackend(.keynote)
+    let sink = RecordingSink()
+
+    func makeEngine(enabled: Bool) -> Engine {
+        var settings = Settings()
+        settings.listenPort = UInt16.random(in: 40000...60000)
+        settings.perfectCueEnabled = enabled
+        settings.perfectCueHost = "127.0.0.1"
+        settings.perfectCuePort = 9 // nothing listens: the client just retries
+        return Engine(backends: [backend], settings: settings, sink: sink, replySink: sink)
+    }
+
+    @Test func pressesReachTheBackendOnlyWhenEnabled() async {
+        let off = makeEngine(enabled: false)
+        await off.perfectCuePressed(.forward, at: Date())
+        #expect(backend.clicker.isEmpty)
+        let on = makeEngine(enabled: true)
+        await on.perfectCuePressed(.forward, at: Date())
+        await on.perfectCuePressed(.back, at: Date())
+        await on.perfectCuePressed(.blankOn, at: Date()) // not a step in the show
+        #expect(backend.clicker == [true, false])
+    }
+
+    @Test func switchedOverOSC() async throws {
+        let engine = makeEngine(enabled: false)
+        engine.start()
+        defer { engine.stop() }
+        let peer = UDPPeer(host: "10.0.0.5", port: 50000)
+        engine.receive(OSCEncoder.encode(OSCMessage("/keypoint/perfectcue/enable", [.string("bridge.local"), .int(5101)])), from: peer)
+        for _ in 0..<200 where !engine.settings.perfectCueEnabled { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(engine.settings.perfectCueEnabled && engine.settings.perfectCueHost == "bridge.local" && engine.settings.perfectCuePort == 5101)
+        #expect(engine.perfectCueStatus.contains("bridge.local:5101"))
+        engine.receive(OSCEncoder.encode(OSCMessage("/keypoint/perfectcue/disable", [])), from: peer)
+        for _ in 0..<200 where engine.settings.perfectCueEnabled { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!engine.settings.perfectCueEnabled && engine.perfectCueStatus.isEmpty)
+        // Feedback reports the switch to KeyPoint controllers.
+        try await Task.sleep(for: .milliseconds(100))
+        let enabled = sink.sent.filter { $0.message.address == "/keypoint/perfectcue/enabled" }.map(\.message.arguments)
+        #expect(enabled.contains([.bool(true)]) && enabled.last == [.bool(false)])
+    }
+}
+
+@Suite struct PerfectCueProtocolTests {
+    @Test func checksums() {
+        // From DSAN's touch panel document and the bridge firmware.
+        #expect(PerfectCueProtocol.message("FRWLEDON") == ">FRWLEDON 81\r")
+        #expect(PerfectCueProtocol.checksum("RVSLEDOF") == "85")
+        #expect(PerfectCueProtocol.checksum("FORWARD") == "35")
+    }
+
+    @Test func events() {
+        #expect(PerfectCueProtocol.event(fromLine: ">FRWLEDON 81") == .forward)
+        #expect(PerfectCueProtocol.event(fromLine: ">RVSLEDON 8D\r") == .back)
+        #expect(PerfectCueProtocol.event(fromLine: ">BLKLEDON 6b") == .blankOn)
+        #expect(PerfectCueProtocol.event(fromLine: ">BLKLEDOF 63") == .blankOff)
+        #expect(PerfectCueProtocol.event(fromLine: ">FRWLEDOF 79") == nil) // the light going off isn't a press
+        #expect(PerfectCueProtocol.event(fromLine: ">FRWLEDON 80") == nil) // bad checksum
+        #expect(PerfectCueProtocol.event(fromLine: "FRWLEDON 81") == nil)
+    }
+
+    @Test func splitsStreamIntoLines() {
+        var buffer = Data()
+        #expect(PerfectCueProtocol.lines(appending: Data(">FRWLEDON 81\r>FRWL".utf8), to: &buffer) == [">FRWLEDON 81"])
+        #expect(PerfectCueProtocol.lines(appending: Data("EDOF 79\r\n".utf8), to: &buffer) == [">FRWLEDOF 79"])
+        #expect(buffer.isEmpty)
+    }
+
+    @Test func routes() {
+        func route(_ address: String, _ args: OSCArgument...) -> Command? { Router.route(OSCMessage(address, args)) }
+        #expect(route("/keypoint/perfectcue/enable") == .setPerfectCue(enabled: true))
+        #expect(route("/keypoint/perfectcue/enable", .string("192.168.0.169")) == .setPerfectCue(enabled: true, host: "192.168.0.169"))
+        #expect(route("/keypoint/perfectcue/enable", .string("perfectcue.local"), .string("5100"))
+            == .setPerfectCue(enabled: true, host: "perfectcue.local", port: 5100))
+        #expect(route("/keypoint/perfectcue/enable", .string(""), .int(5200)) == .setPerfectCue(enabled: true, port: 5200))
+        #expect(route("/keypoint/perfectcue/enable", .string("bad host/x")) == nil)
+        #expect(route("/keypoint/perfectcue/enable", .int(70000)) == nil)
+        #expect(route("/keypoint/perfectcue/disable") == .setPerfectCue(enabled: false))
+        #expect(route("/oscpoint/perfectcue/enable") == nil) // KeyPoint-only
+    }
+
+    @Test func oldSettingsDecode() throws {
+        let s = try JSONDecoder().decode(Settings.self, from: Data(#"{"listenPort": 36000}"#.utf8))
+        #expect(s.listenPort == 36000 && !s.perfectCueEnabled && s.perfectCueHost == "perfectcue.local" && s.perfectCuePort == 5100)
     }
 }

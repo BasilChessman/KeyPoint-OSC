@@ -22,6 +22,8 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>KeyPoint OSC sends show feedback to Companion and listens to a PerfectCue bridge on your network.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>KeyPoint OSC controls PowerPoint and Keynote slide shows when it receives OSC commands, and reads their state to send feedback.</string>
 	<key>NSHumanReadableCopyright</key>

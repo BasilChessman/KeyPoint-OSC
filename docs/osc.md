@@ -55,8 +55,8 @@ Sent only when a value changes. `feedbacks/refresh` (or a new controller connect
 | `slideshow/builds/position` | ⚠️ counted from KeyPoint's own next/previous; clicks made directly on the Mac aren't seen | ⚠️ same; unknown after stepping back onto a slide |
 | `slideshow/notes` (ASCII, CR line breaks), `slideshow/notes-utf8` (blob) | ✅ | ✅ |
 | `slideshow/section/index`, `name`, `slidesremaining` | ✅ | ❌ |
-| `slideshow/media/state`, `position` | ✅ updated about 3 times a second while playing | ❌ |
-| `slideshow/media/duration`, `durationtrimmed`, `startpoint`, `endpoint`, `remaining` | ✅ read from the saved file (see below) | ❌ |
+| `slideshow/media/state`, `position` | ✅ updated about 3 times a second while playing | ⚠️ estimated: a timer from when the saved file says the movie starts (see below) |
+| `slideshow/media/duration`, `durationtrimmed`, `startpoint`, `endpoint`, `remaining` | ✅ read from the saved file (see below) | ⚠️ length and trims read from the saved file; `remaining` is estimated |
 
 Media length (PowerPoint): PowerPoint's scripting doesn't report clip length, so KeyPoint reads it from the saved `.pptx`. It finds the slide's first video or audio item, then measures the embedded copy, or the linked file if it can reach it. This takes up to about a second the first time a slide is shown, and the result is cached until the file is saved again. Trims made in PowerPoint (Playback > Trim) are applied:
 - `duration` is the file's length.
@@ -69,6 +69,8 @@ There are three limits:
 - `.ppt` files and online videos have no length.
 - A linked file that can't be found has no length.
 
+Media time (Keynote), **estimated only**: Keynote's scripting reports a slide's movie file name and loop setting, but not whether it's playing or where it is. KeyPoint reads the saved `.key` for the rest: the slide's build order (when the movie's Start Movie step runs: after the transition, on a click, or after/with another build, with delays and build durations), the movie's trims, and "Play movie across slides". It then runs a timer from that point and reports it as the position. A start on a click counts only clicks sent through KeyPoint (`next`), or PerfectCue presses reported by a PerfectCue bridge (`/keypoint/perfectcue/enable`). Until the estimated start, `state` is `notready` and `remaining` is the full playable length. This is not a live reading of the movie: pausing, skimming and clicks made on the Mac aren't seen. If the saved file doesn't match the open deck (unsaved changes) or can't be read, the timer starts when the slide appears and trims aren't applied. Once the movie should have ended, `state` is `stopped` and `remaining` is 0. For a looping movie, the timer starts again on each pass. `duration` is the measured length of the media file; `startpoint`/`endpoint` are the trim points. Media actions still aren't supported in Keynote.
+
 Under `/keypoint`, a slide without media sends `slideshow/media/state ""`. An unknown length sends `""` for the length values, so clients can clear them.
 
 ## KeyPoint-only messages
@@ -80,5 +82,10 @@ Under `/keypoint`, a slide without media sends `slideshow/media/state ""`. An un
 | `/keypoint/app [powerpoint\|keynote\|none]` | feedback | App in use |
 | `/keypoint/capabilities [JSON array]` | feedback | What the app in use supports (`navigate`, `gotoSlide`, `sections`, `media`, `blackWhite`, …) |
 | `/keypoint/slideshow/overlay [none\|black\|white]` | feedback | Black/white screen state (Keynote: as last set by KeyPoint) |
+| `/keypoint/perfectcue/enable ["host"] [port]` | to KeyPoint | Listen to a PerfectCue bridge (default `perfectcue.local` 5100). Host and port are optional and kept for next time; an empty string keeps the current host. |
+| `/keypoint/perfectcue/disable` | to KeyPoint | Stop listening |
+| `/keypoint/perfectcue/enabled [true\|false]` | feedback | Listening is switched on |
+| `/keypoint/perfectcue/connected [true\|false]` | feedback | Connected to the bridge |
+| `/keypoint/slideshow/media/estimated [true\|false]` | feedback | `true` when the media values are KeyPoint's estimate (Keynote), not read from the app. The capability list then includes `mediaEstimated`. |
 
 All other feedback is the same as in OSCPoint format, under `/keypoint/` instead of `/oscpoint/`.

@@ -14,7 +14,7 @@ It comes with its own Companion module, [companion-module-rustedroof-keypoint-os
 With the KeyPoint OSC Companion module, you can:
 
 - Run a show from Companion: next/previous, go to a slide or section, start and end the show, black or white screen, and pause.
-- Show live show info on buttons: slide counter, slides remaining, builds, notes, section, and media time remaining.
+- Show live show info on buttons: slide counter, slides remaining, builds, notes, section, and media time remaining (in Keynote, only an [estimate](#keynote-media-time-is-an-estimate)).
 - Use PowerPoint and Keynote. KeyPoint picks the app with a show running, or you can fix the choice.
 - Control several Macs from one Companion, with one connection per Mac.
 - Use ready-made presets: navigation, show control, info displays, a media countdown that turns amber at 30 s and red at 10 s, and app selection.
@@ -47,6 +47,7 @@ Items marked (PowerPoint) don't work in Keynote. See [What works in each app](#w
 | Files: open presentation | File name in the active folder |
 | Files: close presentation | File name (empty = the active presentation). For unsaved changes: don't close, discard them, or save first. |
 | KeyPoint: enable / disable OSC actions | While disabled, KeyPoint ignores everything except "enable". |
+| PerfectCue bridge: listen / stop (Keynote) | Optional bridge host and port. See [PerfectCue clicker](#perfectcue-clicker). Needs a Companion module update; until then, send `/keypoint/perfectcue/enable` with the Generic OSC module. |
 | KeyPoint: refresh feedback | Resends all values |
 
 The file actions only work after **Allow file open/close over OSC** is turned on in the KeyPoint menu on the Mac.
@@ -93,10 +94,10 @@ Use these as `$(keypoint:name)`, with your connection's label in place of `keypo
 | `section_name` | Current section name (PowerPoint) |
 | `section_slides_remaining` | Visible slides left in the section (PowerPoint) |
 | `overlay` | Black/white screen (`none`, `black`, `white`) |
-| `media_state` | `playing`, `paused`, `stopped`, `notready` |
-| `media_position`, `media_position_display` | Media position in ms, and as m:ss |
-| `media_duration`, `media_duration_display` | Media length after trimming, in ms and as m:ss (PowerPoint) |
-| `media_remaining`, `media_remaining_display` | Media time remaining, in ms and as m:ss (PowerPoint) |
+| `media_state` | `playing`, `paused`, `stopped`, `notready` (Keynote: estimated) |
+| `media_position`, `media_position_display` | Media position in ms, and as m:ss (Keynote: estimated) |
+| `media_duration`, `media_duration_display` | Media length after trimming, in ms and as m:ss |
+| `media_remaining`, `media_remaining_display` | Media time remaining, in ms and as m:ss (Keynote: estimated) |
 | `files_enabled` | File access enabled on the Mac (true/false) |
 | `active_folder` | Active folder for the file actions |
 | `files` | Presentations in the active folder, after "Files: refresh file list" |
@@ -111,11 +112,50 @@ Use these as `$(keypoint:name)`, with your connection's label in place of `keypo
 | Black / white screen | ✅ | ✅ (needs Accessibility) |
 | Pause / resume auto-advance | ✅ | — |
 | Media play / pause / stop / seek | ✅ | — |
-| Media length and time remaining | ✅ from the saved file | — |
+| Media length and time remaining | ✅ from the saved file | ⚠️ estimate only, see below |
 | Build count and builds remaining | ✅ | — |
 | Notes, slide counts, slides remaining | ✅ | ✅ |
 
 PowerPoint doesn't report a video's length, so KeyPoint reads it from the saved file, including any trims. Save the deck after adding or trimming a video. For the OSC addresses behind all of this, see [docs/osc.md](docs/osc.md).
+
+### Keynote media time is an estimate
+
+> **Keynote's media position, state and time remaining are estimates, not live readings.** Keynote doesn't tell other apps whether a movie is playing or how far it has got. KeyPoint reads the saved `.key` file to work out *when* the movie should start and how long it plays, then runs its own countdown. It never checks what Keynote is actually doing, so the countdown can be wrong. Don't use it where an exact cue matters.
+
+**When the countdown starts.** KeyPoint reads the slide's build order from the saved file and starts counting when the movie's **Start Movie** build runs:
+
+- **Plays when the slide appears** (Start Movie set to *After Transition*): after the transition, plus any delay.
+- **Start movie on click** (Start Movie set to *On Click*): when that click is sent **through KeyPoint**, for example by a Companion "Next" button. Until then the movie shows `notready`, with the full length remaining.
+- **Part of a build sequence** (*After Build N* or *With Build N*): KeyPoint adds up the clicks, delays and build durations before it. For example: on the second click, 1 s after a 0.5 s build.
+- **No Start Movie build**: when the movie builds in, or else when the slide appears.
+
+Trims made in Keynote (Format > Movie > Edit Movie > Trim) are applied, so the countdown covers only the part that plays. **Play movie across slides** carries the countdown over to the next slide when the same movie is on both.
+
+**The countdown is wrong, or never starts, when:**
+
+- **Clicks don't go through KeyPoint or a PerfectCue bridge.** A press on a keyboard, mouse or ordinary clicker on the Mac isn't seen. A movie waiting for a click then never starts counting, and build-based timing on that slide is off. A DSAN PerfectCue clicker *is* seen if KeyPoint listens to a [PerfectCue bridge](#perfectcue-clicker).
+- **The movie is paused, skimmed or restarted on the Mac.** KeyPoint doesn't see this and keeps counting.
+- **You step back onto a slide.** Which builds have run isn't known, so the movie shows `notready` until you leave the slide and come back forwards.
+- **The deck has changed since it was last saved.** KeyPoint reads the saved file. If the slide count differs, or the slide's movie isn't in the saved file, it falls back to starting when the slide appears and doesn't apply trims. Save before the show.
+- **The slide has more than one movie.** KeyPoint times the first movie, or the first audio clip if there's no movie.
+- **Keynote's file format changes.** The timing comes from Keynote's undocumented file format (tested with Keynote 14.3). If a future version can't be read, KeyPoint falls back to starting when the slide appears.
+
+### PerfectCue clicker
+
+If the show is advanced with a DSAN PerfectCue, KeyPoint can listen to a [PerfectCue bridge](https://github.com/BasilChessman/perfectcue-bridge), which reports every Forward and Back press on the PerfectCue bus. KeyPoint counts those presses like its own next/previous, so Keynote movies that start on a click or after a build are timed from the clicker. The press still reaches Keynote the usual way, through the base station's USB keystroke; KeyPoint only listens and never sends anything to the bridge. Presses sent from Companion's PerfectCue module also count, because they fire the same keystroke.
+
+Turn it on in the menu (**Listen to PerfectCue bridge**, host `perfectcue.local`, port 5100) or over OSC with `/keypoint/perfectcue/enable`. The menu shows whether the bridge is connected; KeyPoint reconnects on its own if the bridge restarts. The bridge accepts up to 4 connections, so it can serve Companion and KeyPoint at the same time.
+
+Things to know:
+
+- **Listen only on the Mac that runs the show.** KeyPoint assumes each press reached its own Keynote. If the base station's USB goes to a different computer, the count is wrong.
+- **Each press is matched to the show after the fact.** KeyPoint compares the slide before and after the press to tell a build step from a slide change. Pressing faster than about 5 times a second, or pressing while Keynote is busy with a transition, can be miscounted.
+- **Blank presses are ignored.**
+- PowerPoint doesn't use the presses: it reports media playback itself.
+
+Timings are also off by a fraction of a second: transitions and builds don't run exactly to the saved durations, and KeyPoint checks the show about 3 times a second (clicks sent through KeyPoint are timed from the command itself).
+
+For a looping movie, the countdown starts again on each pass. A movie that has finished shows `stopped` with 0 remaining. Media controls (play, pause, seek) still don't work in Keynote. Under the KeyPoint format, `/keypoint/slideshow/media/estimated` is `true` while the values are estimates, so clients can label them.
 
 ## How it works
 
@@ -159,6 +199,7 @@ KeyPoint replies to each module connection at the address and port it sends from
 | Feedback format | KeyPoint | Format for "Feedback to" and the last controller: KeyPoint (`/keypoint/...`) or OSCPoint compatible (`/oscpoint/...`) |
 | App | Automatic | Automatic, PowerPoint or Keynote |
 | Use Accessibility features | on | See Setup step 3 |
+| Listen to PerfectCue bridge | off, `perfectcue.local` : 5100 | Also switchable over OSC (`/keypoint/perfectcue/enable`, `/keypoint/perfectcue/disable`) |
 | Allow file open/close over OSC | off | Can only be turned on here, never over OSC. Anyone who can reach the Mac can then open and close presentations in the active folder. |
 
 ## Troubleshooting
@@ -168,6 +209,7 @@ KeyPoint replies to each module connection at the address and port it sends from
 - **No feedback in Companion**: check the feedback host and port, and that the Companion machine's firewall allows UDP 35550. The **Activity** list in the menu shows errors.
 - **Keynote next/previous brings Keynote to the front**: Keynote only accepts these when it's frontmost. Turn off "Allow bringing the app to the front" to stop this; next/previous then fail while Keynote is in the background.
 - **PowerPoint go-to-slide flickers**: PowerPoint for Mac can't jump within a running show by script, so KeyPoint restarts the show at that slide. Grant Accessibility so the rest of the deck stays reachable afterwards.
+- **Keynote media countdown doesn't match the movie, or stays at `notready`**: it's an estimate based on the saved file and on clicks sent through KeyPoint. Save the deck, and advance with Companion rather than a clicker on the Mac. See [Keynote media time is an estimate](#keynote-media-time-is-an-estimate).
 - **Build position looks wrong**: it's counted from KeyPoint's own next/previous commands. Clicking on the Mac itself isn't seen until the slide changes.
 - **Logs**: `log stream --predicate 'subsystem == "org.keypointosc.KeyPointOSC"'`
 

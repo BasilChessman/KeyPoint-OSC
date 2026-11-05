@@ -39,6 +39,10 @@ public final class Engine {
     public private(set) var keypointControllers: [UDPPeer] = []
     public private(set) var log: [LogEntry] = []
     public private(set) var isRunning = false
+    /// PerfectCue bridge connection, while enabled.
+    public private(set) var perfectCueConnected = false
+    public private(set) var perfectCueStatus = ""
+    public private(set) var perfectCueLastPress: Date?
 
     public let version: String
     private let backends: [any SlideBackend]
@@ -59,6 +63,7 @@ public final class Engine {
     private var lastPolled: [BackendKind: Date] = [:]
     private var pollInFlight = false
     private var pollAgain = false
+    private var perfectCue: PerfectCueClient?
 
     /// Poll intervals: during a show, with an app open, and with nothing to talk to.
     public var showInterval: Duration = .milliseconds(300)
@@ -103,6 +108,7 @@ public final class Engine {
             }
         })
         startListening()
+        applyPerfectCue()
         for format in FeedbackFormat.allCases {
             sendFeedback([publishers[format]!.startupEvent(version: version)], format: format)
         }
@@ -111,6 +117,7 @@ public final class Engine {
     public func stop() {
         isRunning = false
         listener.stop()
+        perfectCue?.stop()
         commandContinuation?.finish()
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
@@ -138,6 +145,11 @@ public final class Engine {
         onSettingsChange(new)
         if isRunning && (old.listenPort != new.listenPort || old.localOnly != new.localOnly) {
             startListening()
+        }
+        if isRunning && (old.perfectCueEnabled != new.perfectCueEnabled || old.perfectCueHost != new.perfectCueHost
+            || old.perfectCuePort != new.perfectCuePort) {
+            applyPerfectCue()
+            requestPoll()
         }
         if old.feedbackHost != new.feedbackHost || old.feedbackPort != new.feedbackPort || old.fileAccessEnabled != new.fileAccessEnabled
             || old.activeFolder != new.activeFolder || old.feedbackFormat != new.feedbackFormat
@@ -206,6 +218,12 @@ public final class Engine {
         case .selectApp(let mode):
             update { $0.backendMode = mode }
             requestPoll()
+        case .setPerfectCue(let enabled, let host, let port):
+            update { s in
+                s.perfectCueEnabled = enabled
+                if let host { s.perfectCueHost = host }
+                if let port { s.perfectCuePort = port }
+            }
         case .slide(let action):
             await perform(action)
         }
@@ -231,6 +249,43 @@ public final class Engine {
         } catch {
             record("\(action): \(error)", error: true)
         }
+        await pollOnce()
+    }
+
+    // MARK: PerfectCue
+
+    private func applyPerfectCue() {
+        perfectCue?.stop()
+        perfectCueConnected = false
+        guard settings.perfectCueEnabled, let host = Settings.validHost(settings.perfectCueHost) else {
+            perfectCueStatus = settings.perfectCueEnabled ? "Invalid bridge address" : ""
+            return
+        }
+        let client = perfectCue ?? PerfectCueClient(
+            onEvent: { [weak self] event, time in Task { @MainActor in await self?.perfectCuePressed(event, at: time) } },
+            onState: { [weak self] connected, reason in Task { @MainActor in self?.perfectCueState(connected, reason) } })
+        perfectCue = client
+        perfectCueStatus = "Connecting to \(host):\(settings.perfectCuePort)…"
+        client.start(host: host, port: settings.perfectCuePort)
+    }
+
+    private func perfectCueState(_ connected: Bool, _ reason: String?) {
+        guard settings.perfectCueEnabled else { return }
+        let address = "\(settings.perfectCueHost):\(settings.perfectCuePort)"
+        let status = connected ? "Connected to \(address)" : "Not connected to \(address)" + (reason.map { ": \($0)" } ?? "")
+        if connected != perfectCueConnected {
+            record(connected ? "PerfectCue bridge connected: \(address)" : "PerfectCue bridge: \(status)", error: !connected)
+        }
+        perfectCueConnected = connected
+        perfectCueStatus = status
+        requestPoll()
+    }
+
+    /// The base station has already sent the press to the Mac as a keystroke; tell the backend when.
+    func perfectCuePressed(_ event: PerfectCueEvent, at time: Date) async {
+        guard settings.perfectCueEnabled, event == .forward || event == .back else { return }
+        perfectCueLastPress = time
+        await selectBackend()?.clickerPressed(forward: event == .forward, at: time)
         await pollOnce()
     }
 
@@ -363,6 +418,8 @@ public final class Engine {
                 context.activeFolder = settings.activeFolder
                 context.activeFolderFullPath = settings.activeFolderURL.path
                 context.app = chosen?.kind
+                context.perfectCueEnabled = settings.perfectCueEnabled
+                context.perfectCueConnected = perfectCueConnected
                 for format in FeedbackFormat.allCases {
                     let publisher = publishers[format]!
                     let targets = feedbackTargets(for: format)

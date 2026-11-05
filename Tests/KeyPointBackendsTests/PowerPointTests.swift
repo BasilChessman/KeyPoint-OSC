@@ -174,7 +174,7 @@ struct DumpScripts {
     @Test func resolverCachesInBackground() throws {
         let deck = try Self.makeDeck(trim: "")
         defer { try? FileManager.default.removeItem(at: deck.deletingLastPathComponent()) }
-        let resolver = MediaDurationResolver()
+        let resolver = MediaDurationResolver.pptx()
         #expect(resolver.clip(deckPath: deck.path, slide: 2) == nil) // started, not done
         resolver.drain()
         #expect(resolver.clip(deckPath: deck.path, slide: 2)?.duration == 1500)
