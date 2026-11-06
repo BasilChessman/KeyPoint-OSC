@@ -44,7 +44,7 @@ app_zip="$out/KeyPoint-OSC-$version.zip"
 ditto -c -k --keepParent "build/KeyPoint OSC.app" "$app_zip"
 
 echo "== Companion module $module_version"
-(cd $module_dir && rm -f *.tgz && npm run package >/dev/null)
+(cd $module_dir && rm -f -- *.tgz(N) && npm run package >/dev/null)
 module_tgz=$(ls $module_dir/*.tgz)
 cp "$module_tgz" $out/
 
