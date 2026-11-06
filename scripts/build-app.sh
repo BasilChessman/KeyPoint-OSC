@@ -14,11 +14,17 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 if [[ ${UNIVERSAL:-0} == 1 ]]; then
   slices=()
+  slice_dir=$(mktemp -d)
   for arch in arm64 x86_64; do
     swift build -c $config --product KeyPointOSC --triple $arch-apple-macosx14.0
-    slices+=("$(swift build -c $config --triple $arch-apple-macosx14.0 --show-bin-path)/KeyPointOSC")
+    # Newer SwiftPM builds every triple into the same folder, so copy each slice out
+    # before the next build replaces it.
+    cp "$(swift build -c $config --triple $arch-apple-macosx14.0 --show-bin-path)/KeyPointOSC" "$slice_dir/KeyPointOSC-$arch"
+    [[ $(lipo -archs "$slice_dir/KeyPointOSC-$arch") == $arch ]] || { echo "Expected a $arch binary" >&2; exit 1; }
+    slices+=("$slice_dir/KeyPointOSC-$arch")
   done
   lipo -create $slices -output "$app/Contents/MacOS/KeyPointOSC"
+  rm -rf "$slice_dir"
 else
   swift build -c $config --product KeyPointOSC
   cp "$(swift build -c $config --show-bin-path)/KeyPointOSC" "$app/Contents/MacOS/KeyPointOSC"
