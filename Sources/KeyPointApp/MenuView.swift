@@ -7,6 +7,7 @@ struct MenuView: View {
     let engine: Engine
     @State private var showLog = false
     @State private var accessibilityTrusted = Accessibility.isTrusted
+    @State private var inputMonitoring = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -17,6 +18,8 @@ struct MenuView: View {
             NetworkSection(engine: engine)
             Divider()
             PerfectCueSection(engine: engine)
+            Divider()
+            ClickerKeysSection(engine: engine, permitted: inputMonitoring)
             Divider()
             permissionsSection
             Divider()
@@ -35,6 +38,7 @@ struct MenuView: View {
         .task {
             while !Task.isCancelled {
                 accessibilityTrusted = Accessibility.isTrusted
+                inputMonitoring = engine.keyboardPermitted
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -226,6 +230,61 @@ private struct NetworkSection: View {
             }
         }
         return nil
+    }
+}
+
+/// Watching this Mac's keyboard for clicker keys, so presses time Keynote movies.
+private struct ClickerKeysSection: View {
+    let engine: Engine
+    let permitted: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Listen for clicker keys", isOn: Binding(
+                get: { engine.settings.keyboardClickerEnabled }, set: { v in engine.update { $0.keyboardClickerEnabled = v } }))
+                .help("Counts Forward/Back presses from a clicker plugged into this Mac, so Keynote movies that start on a click or with a build are timed from the clicker. Needs Input Monitoring.")
+            if engine.settings.keyboardClickerEnabled {
+                PermissionRow(
+                    title: "Input Monitoring",
+                    ok: permitted,
+                    detail: permitted ? "Granted. Only clicker keys going to Keynote are counted; nothing is recorded."
+                        : "Needed to see clicker presses. Turn on KeyPoint OSC, then quit and reopen it.",
+                    action: permitted ? nil : ("Allow…", { engine.requestKeyboardPermission() }))
+                keyRow("Forward", keys: engine.settings.clickerForwardKeys, forward: true)
+                keyRow("Back", keys: engine.settings.clickerBackKeys, forward: false)
+                if let forward = engine.learningClickerKey {
+                    HStack {
+                        Text("Press the clicker's \(forward ? "Forward" : "Back") button… (Esc cancels)")
+                            .font(.caption).foregroundStyle(.orange)
+                        Spacer()
+                        Button("Cancel") { engine.cancelLearning() }.controlSize(.small)
+                    }
+                } else if !engine.keyboardStatus.isEmpty {
+                    Text(engine.keyboardStatus).font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Reset keys to defaults") { engine.resetClickerKeys() }
+                    .controlSize(.small)
+                    .disabled(engine.settings.clickerForwardKeys == KeyChord.defaultForward
+                        && engine.settings.clickerBackKeys == KeyChord.defaultBack)
+            }
+        }
+    }
+
+    private func keyRow(_ title: String, keys: [KeyChord], forward: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).frame(width: 58, alignment: .leading)
+            Text(keys.isEmpty ? "none" : keys.map(\.label).joined(separator: ", "))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                .contextMenu {
+                    ForEach(keys, id: \.self) { key in
+                        Button("Remove \(key.label)") { engine.removeClickerKey(key) }
+                    }
+                }
+            Spacer()
+            Button("Learn") { engine.learnClickerKey(forward: forward) }
+                .controlSize(.small)
+                .disabled(!permitted || engine.learningClickerKey != nil)
+        }
     }
 }
 

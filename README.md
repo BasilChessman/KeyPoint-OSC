@@ -17,7 +17,8 @@ With the KeyPoint OSC Companion module, you can:
 - Show live show info on buttons: slide counter, slides remaining, builds, notes, section, and media time remaining (in Keynote, only an [estimate](#keynote-media-time-is-an-estimate)).
 - Use PowerPoint and Keynote. KeyPoint picks the app with a show running, or you can fix the choice.
 - Control several Macs from one Companion, with one connection per Mac.
-- Use ready-made presets: navigation, show control, info displays, a media countdown that turns amber at 30 s and red at 10 s, and app selection.
+- Time Keynote movies that start on a click from your clicker: one plugged into the Mac ([clicker keys](#clicker-on-this-mac)) or a DSAN PerfectCue ([bridge](#perfectcue-clicker)).
+- Use ready-made presets: navigation, show control, info displays, a media countdown that turns amber at 30 s and red at 10 s (and shows ≈ when estimated), app selection, and clicker on/off.
 
 Items marked (PowerPoint) don't work in Keynote. See [What works in each app](#what-works-in-each-app).
 
@@ -47,7 +48,8 @@ Items marked (PowerPoint) don't work in Keynote. See [What works in each app](#w
 | Files: open presentation | File name in the active folder |
 | Files: close presentation | File name (empty = the active presentation). For unsaved changes: don't close, discard them, or save first. |
 | KeyPoint: enable / disable OSC actions | While disabled, KeyPoint ignores everything except "enable". |
-| PerfectCue bridge: listen / stop (Keynote) | Optional bridge host and port. See [PerfectCue clicker](#perfectcue-clicker). Needs a Companion module update; until then, send `/keypoint/perfectcue/enable` with the Generic OSC module. |
+| Clicker keys: listen / stop (Keynote) | Listen, stop or toggle. Keys are learned in the KeyPoint menu. See [Clicker on this Mac](#clicker-on-this-mac). |
+| PerfectCue bridge: listen / stop (Keynote) | Listen, stop or toggle, with optional bridge host and port. See [PerfectCue clicker](#perfectcue-clicker). |
 | KeyPoint: refresh feedback | Resends all values |
 
 The file actions only work after **Allow file open/close over OSC** is turned on in the KeyPoint menu on the Mac.
@@ -65,8 +67,11 @@ The file actions only work after **Allow file open/close over OSC** is turned on
 | Current section is (PowerPoint) | Section name | Green |
 | Current presentation is | File name | Green |
 | App in use | PowerPoint, Keynote, none open | Green |
-| Media state (PowerPoint) | Playing, paused, stopped | Green |
-| Media ending soon (PowerPoint) | Seconds remaining, only while playing | Red |
+| Media state | Playing, paused, stopped (Keynote: estimated) | Green |
+| Media time remaining at or below (ending soon) | Seconds remaining, only while playing | Red |
+| Media time is an estimate (Keynote) | | Amber |
+| Clicker keys | Listening, on, or on but missing Input Monitoring | Green |
+| PerfectCue bridge | Connected, on, or on but not connected | Green |
 | Current app supports | A feature, for example media control, sections, black/white screen. Use it to grey out buttons the app in use can't do. | Green |
 | File access is enabled on the Mac | | Green |
 
@@ -98,6 +103,9 @@ Use these as `$(keypoint:name)`, with your connection's label in place of `keypo
 | `media_position`, `media_position_display` | Media position in ms, and as m:ss (Keynote: estimated) |
 | `media_duration`, `media_duration_display` | Media length after trimming, in ms and as m:ss |
 | `media_remaining`, `media_remaining_display` | Media time remaining, in ms and as m:ss (Keynote: estimated) |
+| `media_estimated` | Media values are an estimate (true for Keynote) |
+| `keyboard_enabled`, `keyboard_permission` | Listening for clicker keys is on; Input Monitoring is granted |
+| `perfectcue_enabled`, `perfectcue_connected` | Listening to a PerfectCue bridge is on; connected to it |
 | `files_enabled` | File access enabled on the Mac (true/false) |
 | `active_folder` | Active folder for the file actions |
 | `files` | Presentations in the active folder, after "Files: refresh file list" |
@@ -133,12 +141,26 @@ Trims made in Keynote (Format > Movie > Edit Movie > Trim) are applied, so the c
 
 **The countdown is wrong, or never starts, when:**
 
-- **Clicks don't go through KeyPoint or a PerfectCue bridge.** A press on a keyboard, mouse or ordinary clicker on the Mac isn't seen. A movie waiting for a click then never starts counting, and build-based timing on that slide is off. A DSAN PerfectCue clicker *is* seen if KeyPoint listens to a [PerfectCue bridge](#perfectcue-clicker).
+- **Clicks KeyPoint doesn't see.** By default KeyPoint only knows about its own next/previous. A press on a clicker, keyboard or mouse on the Mac isn't seen, so a movie waiting for a click never starts counting and build-based timing on that slide is off. Two ways to fix that: [listen for clicker keys](#clicker-on-this-mac) on this Mac, or listen to a [PerfectCue bridge](#perfectcue-clicker). Mouse clicks are never seen.
 - **The movie is paused, skimmed or restarted on the Mac.** KeyPoint doesn't see this and keeps counting.
 - **You step back onto a slide.** Which builds have run isn't known, so the movie shows `notready` until you leave the slide and come back forwards.
 - **The deck has changed since it was last saved.** KeyPoint reads the saved file. If the slide count differs, or the slide's movie isn't in the saved file, it falls back to starting when the slide appears and doesn't apply trims. Save before the show.
 - **The slide has more than one movie or audio clip.** KeyPoint times each one and reports one at a time: the one that started most recently while it plays, otherwise the next one still waiting to start (as `notready`, with its full length), and once all have finished, the last one. Overlapping movies show only the newest. Without a usable saved file they all count from the slide appearing, and the first one is shown.
 - **Keynote's file format changes.** The timing comes from Keynote's undocumented file format (tested with Keynote 14.3). If a future version can't be read, KeyPoint falls back to starting when the slide appears.
+
+### Clicker on this Mac
+
+Most presentation clickers plug into the Mac (USB receiver or Bluetooth) and act as a keyboard: Forward sends a key such as Page Down or →, Back a key such as Page Up or ←. With **Listen for clicker keys** on, KeyPoint watches for those keys and counts each one like its own next/previous, so Keynote movies that start on a click or after a build are timed from the clicker.
+
+- **Needs Input Monitoring.** Turn on **Listen for clicker keys** in the menu, click **Allow…** next to Input Monitoring, and turn on KeyPoint OSC in System Settings > Privacy & Security > Input Monitoring. If it still doesn't listen, quit and reopen KeyPoint OSC.
+- **Listen only.** KeyPoint never blocks, changes or stores key presses. It compares each key with the clicker keys and counts it only if the key went to Keynote (the app being controlled) during a show. Typing in another app isn't counted.
+- **Default keys** are the ones Keynote uses: Forward = Page Down, →, ↓, Space, Return; Back = Page Up, ←, ↑, Delete. A Shift-held version counts too (Keynote uses Shift to skip builds).
+- **Learn your clicker's keys** if it sends something else (some send F5, Tab or a letter): click **Learn** next to Forward or Back, then press that clicker button. Esc cancels. Do this outside a show, as the press also goes to whatever app is in front. A learned key moves from the other list if it was there. Right-click a key list to remove a key; **Reset keys to defaults** puts the defaults back.
+- **The keyboard counts too.** KeyPoint can't tell a clicker from the Mac's own keyboard, so pressing → on the keyboard during a show counts as Forward. That's usually what you want: it moves Keynote as well.
+- **Each press is matched to the show after the fact**, as with the PerfectCue: KeyPoint compares the slide before and after to tell a build step from a slide change.
+- Also switchable over OSC: `/keypoint/keyboard/enable`, `/keypoint/keyboard/disable`. Learning keys is only possible on the Mac.
+
+A PerfectCue base station plugged into this Mac sends its presses as keys too. If KeyPoint also listens to a PerfectCue bridge, the same press arrives twice; presses from the bridge and the keyboard in the same direction less than a second apart count once.
 
 ### PerfectCue clicker
 
@@ -174,13 +196,15 @@ KeyPoint OSC listens for OSC over UDP and drives the presentation apps through A
 3. Optional but recommended: in the menu, under **Permissions**, click **Allow…** next to Accessibility and turn on KeyPoint OSC. This enables:
    - PowerPoint: go to slide N with the whole deck still reachable afterwards, and switching between open presentations.
    - Keynote: black and white screen.
+
+   For clicker timing in Keynote, **Input Monitoring** is also needed; see [Clicker on this Mac](#clicker-on-this-mac).
 4. If Companion runs on another computer, enter that computer's IP address under **Feedback to**, and leave "This Mac only" off. When macOS asks whether KeyPoint OSC may accept incoming network connections, click **Allow**.
 
 ### Companion
 
 Use the **KeyPoint OSC** module ([companion-module-rustedroof-keypoint-osc](https://github.com/BasilChessman/companion-module-rustedroof-keypoint-osc)):
 
-1. Build the package from that repo: `npm install && npm run package`. This creates `rustedroof-keypoint-osc-0.1.0.tgz`.
+1. Download `rustedroof-keypoint-osc-<version>.tgz` from [Releases](https://github.com/BasilChessman/KeyPoint-OSC/releases), or build it from that repo with `npm install && npm run package`.
 2. In the Companion web interface, open **Modules**, choose **Import module package**, and pick the `.tgz`.
 3. Add a **KeyPoint OSC** connection. Enter this Mac's IP (shown in the KeyPoint menu as "This Mac"), send port 35551, and a receive port of your choice, different for each KeyPoint connection (0 = any free port).
 
@@ -200,6 +224,7 @@ KeyPoint replies to each module connection at the address and port it sends from
 | Feedback format | KeyPoint | Format for "Feedback to" and the last controller: KeyPoint (`/keypoint/...`) or OSCPoint compatible (`/oscpoint/...`) |
 | App | Automatic | Automatic, PowerPoint or Keynote |
 | Use Accessibility features | on | See Setup step 3 |
+| Listen for clicker keys | off | Needs Input Monitoring. Forward and Back keys can be learned. Also switchable over OSC (`/keypoint/keyboard/enable`, `/keypoint/keyboard/disable`) |
 | Listen to PerfectCue bridge | off, `perfectcue.local` : 5100 | Also switchable over OSC (`/keypoint/perfectcue/enable`, `/keypoint/perfectcue/disable`) |
 | Allow file open/close over OSC | off | Can only be turned on here, never over OSC. Anyone who can reach the Mac can then open and close presentations in the active folder. |
 
@@ -211,7 +236,8 @@ KeyPoint replies to each module connection at the address and port it sends from
 - **Keynote next/previous brings Keynote to the front**: Keynote only accepts these when it's frontmost. Turn off "Allow bringing the app to the front" to stop this; next/previous then fail while Keynote is in the background.
 - **PowerPoint go-to-slide flickers**: PowerPoint for Mac can't jump within a running show by script, so KeyPoint restarts the show at that slide. Grant Accessibility so the rest of the deck stays reachable afterwards.
 - **Keynote media countdown doesn't match the movie, or stays at `notready`**: it's an estimate based on the saved file and on clicks sent through KeyPoint. Save the deck, and advance with Companion rather than a clicker on the Mac. See [Keynote media time is an estimate](#keynote-media-time-is-an-estimate).
-- **Build position looks wrong**: it's counted from KeyPoint's own next/previous commands. Clicking on the Mac itself isn't seen until the slide changes.
+- **Build position looks wrong**: it's counted from KeyPoint's own next/previous commands, plus clicker keys or PerfectCue presses if you turned those on. Other clicks on the Mac aren't seen until the slide changes.
+- **Clicker keys aren't counted**: check Input Monitoring in the menu (quit and reopen KeyPoint OSC after granting it), that Keynote is in front during the show, and that the clicker's keys are in the Forward/Back lists (use **Learn**).
 - **Logs**: `log stream --predicate 'subsystem == "org.keypointosc.KeyPointOSC"'`
 
 ## Building

@@ -42,6 +42,10 @@ public struct Settings: Codable, Equatable, Sendable {
     public var perfectCueEnabled = false
     public var perfectCueHost = "perfectcue.local"
     public var perfectCuePort: UInt16 = 5100
+    /// Watch this Mac's keyboard for clicker keys (needs Input Monitoring), for Keynote timing.
+    public var keyboardClickerEnabled = false
+    public var clickerForwardKeys = KeyChord.defaultForward
+    public var clickerBackKeys = KeyChord.defaultBack
 
     public init() {}
 
@@ -79,6 +83,9 @@ public struct Settings: Codable, Equatable, Sendable {
         perfectCueEnabled = try c.decodeIfPresent(Bool.self, forKey: .perfectCueEnabled) ?? d.perfectCueEnabled
         perfectCueHost = try c.decodeIfPresent(String.self, forKey: .perfectCueHost) ?? d.perfectCueHost
         perfectCuePort = try c.decodeIfPresent(UInt16.self, forKey: .perfectCuePort) ?? d.perfectCuePort
+        keyboardClickerEnabled = try c.decodeIfPresent(Bool.self, forKey: .keyboardClickerEnabled) ?? d.keyboardClickerEnabled
+        clickerForwardKeys = try c.decodeIfPresent([KeyChord].self, forKey: .clickerForwardKeys) ?? d.clickerForwardKeys
+        clickerBackKeys = try c.decodeIfPresent([KeyChord].self, forKey: .clickerBackKeys) ?? d.clickerBackKeys
     }
 }
 

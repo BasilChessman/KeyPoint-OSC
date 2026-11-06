@@ -52,11 +52,11 @@ public protocol SlideBackend: AnyObject, Sendable {
     func lastActivated() -> Date?
     func poll() async throws -> BackendSnapshot
     func perform(_ action: SlideAction, options: BackendOptions) async throws
-    /// A clicker press made outside KeyPoint (PerfectCue): the show has already moved, KeyPoint
-    /// just needs to know when. `forward` is Forward, else Back.
-    func clickerPressed(forward: Bool, at time: Date) async
+    /// A clicker press made outside KeyPoint (PerfectCue bridge, or a key on this Mac): the show
+    /// has already moved, KeyPoint just needs to know when. `forward` is Forward, else Back.
+    func clickerPressed(forward: Bool, at time: Date, source: ClickSource) async
 }
 
 extension SlideBackend {
-    public func clickerPressed(forward: Bool, at time: Date) async {}
+    public func clickerPressed(forward: Bool, at time: Date, source: ClickSource) async {}
 }

@@ -43,6 +43,12 @@ public final class Engine {
     public private(set) var perfectCueConnected = false
     public private(set) var perfectCueStatus = ""
     public private(set) var perfectCueLastPress: Date?
+    /// Keyboard clicker: listening, a reason when it can't, and the direction being learned.
+    public private(set) var keyboardListening = false
+    public private(set) var keyboardStatus = ""
+    public private(set) var learningClickerKey: Bool?
+    public var keyboardPermitted: Bool { keyboard?.hasPermission ?? false }
+    public var keyboardAvailable: Bool { keyboard != nil }
 
     public let version: String
     private let backends: [any SlideBackend]
@@ -64,6 +70,7 @@ public final class Engine {
     private var pollInFlight = false
     private var pollAgain = false
     private var perfectCue: PerfectCueClient?
+    private let keyboard: (any KeyboardClickerMonitoring)?
 
     /// Poll intervals: during a show, with an app open, and with nothing to talk to.
     public var showInterval: Duration = .milliseconds(300)
@@ -75,7 +82,9 @@ public final class Engine {
     /// `replySink` sends replies to KeyPoint controllers; by default the listening socket.
     public init(backends: [any SlideBackend], settings: Settings, sink: any FeedbackSink,
                 replySink: (any FeedbackSink)? = nil, version: String = "dev",
+                keyboard: (any KeyboardClickerMonitoring)? = nil,
                 onSettingsChange: @escaping (Settings) -> Void = { _ in }) {
+        self.keyboard = keyboard
         self.backends = backends
         self.settings = settings
         self.sink = sink
@@ -109,6 +118,7 @@ public final class Engine {
         })
         startListening()
         applyPerfectCue()
+        applyKeyboard()
         for format in FeedbackFormat.allCases {
             sendFeedback([publishers[format]!.startupEvent(version: version)], format: format)
         }
@@ -118,6 +128,9 @@ public final class Engine {
         isRunning = false
         listener.stop()
         perfectCue?.stop()
+        keyboard?.cancelLearning()
+        keyboard?.stop()
+        keyboardListening = false
         commandContinuation?.finish()
         tasks.forEach { $0.cancel() }
         tasks.removeAll()
@@ -149,6 +162,11 @@ public final class Engine {
         if isRunning && (old.perfectCueEnabled != new.perfectCueEnabled || old.perfectCueHost != new.perfectCueHost
             || old.perfectCuePort != new.perfectCuePort) {
             applyPerfectCue()
+            requestPoll()
+        }
+        if isRunning && (old.keyboardClickerEnabled != new.keyboardClickerEnabled
+            || old.clickerForwardKeys != new.clickerForwardKeys || old.clickerBackKeys != new.clickerBackKeys) {
+            applyKeyboard()
             requestPoll()
         }
         if old.feedbackHost != new.feedbackHost || old.feedbackPort != new.feedbackPort || old.fileAccessEnabled != new.fileAccessEnabled
@@ -218,6 +236,8 @@ public final class Engine {
         case .selectApp(let mode):
             update { $0.backendMode = mode }
             requestPoll()
+        case .setKeyboardClicker(let on):
+            update { $0.keyboardClickerEnabled = on }
         case .setPerfectCue(let enabled, let host, let port):
             update { s in
                 s.perfectCueEnabled = enabled
@@ -285,8 +305,91 @@ public final class Engine {
     func perfectCuePressed(_ event: PerfectCueEvent, at time: Date) async {
         guard settings.perfectCueEnabled, event == .forward || event == .back else { return }
         perfectCueLastPress = time
-        await selectBackend()?.clickerPressed(forward: event == .forward, at: time)
+        await selectBackend()?.clickerPressed(forward: event == .forward, at: time, source: .bridge)
         await pollOnce()
+    }
+
+    // MARK: Keyboard clicker
+
+    private func applyKeyboard() {
+        guard let keyboard else { return }
+        keyboard.stop()
+        keyboardListening = false
+        guard settings.keyboardClickerEnabled else {
+            keyboardStatus = ""
+            return
+        }
+        guard keyboard.hasPermission else {
+            keyboardStatus = "Needs Input Monitoring permission"
+            return
+        }
+        keyboardListening = keyboard.start(forward: settings.clickerForwardKeys, back: settings.clickerBackKeys) { [weak self] forward, time, app in
+            Task { await self?.keyPressed(forward: forward, at: time, app: app) }
+        }
+        keyboardStatus = keyboardListening ? "Listening for clicker keys" : "Couldn't watch the keyboard"
+        if !keyboardListening { record("Keyboard clicker: couldn't start the keyboard tap", error: true) }
+    }
+
+    /// A clicker key went to `app`. It only counts if that's the app being controlled.
+    func keyPressed(forward: Bool, at time: Date, app: String?) async {
+        guard settings.keyboardClickerEnabled, learningClickerKey == nil,
+              let backend = selectBackend(), backend.bundleIdentifier == app else { return }
+        await backend.clickerPressed(forward: forward, at: time, source: .keyboard)
+        await pollOnce()
+    }
+
+    /// Starts listening when permission arrives after the setting was turned on.
+    private func checkKeyboardPermission() {
+        if settings.keyboardClickerEnabled, !keyboardListening, keyboard?.hasPermission == true { applyKeyboard() }
+    }
+
+    public func requestKeyboardPermission() {
+        keyboard?.requestPermission()
+    }
+
+    /// Captures the next key as a Forward (or Back) key. Esc cancels.
+    public func learnClickerKey(forward: Bool) {
+        guard let keyboard else { return }
+        guard keyboard.hasPermission else {
+            keyboard.requestPermission()
+            keyboardStatus = "Needs Input Monitoring permission"
+            return
+        }
+        keyboard.cancelLearning()
+        learningClickerKey = forward
+        let started = keyboard.learn { [weak self] chord in self?.finishLearning(chord) }
+        if !started { learningClickerKey = nil }
+    }
+
+    public func cancelLearning() {
+        keyboard?.cancelLearning()
+        learningClickerKey = nil
+    }
+
+    private func finishLearning(_ chord: KeyChord?) {
+        guard let forward = learningClickerKey else { return }
+        learningClickerKey = nil
+        guard let chord else { return }
+        update { s in
+            s.clickerForwardKeys.removeAll { $0 == chord }
+            s.clickerBackKeys.removeAll { $0 == chord }
+            if forward { s.clickerForwardKeys.append(chord) } else { s.clickerBackKeys.append(chord) }
+        }
+        record("Clicker key learned: \(chord.label) = \(forward ? "Forward" : "Back")")
+    }
+
+    public func removeClickerKey(_ chord: KeyChord) {
+        update { s in
+            s.clickerForwardKeys.removeAll { $0 == chord }
+            s.clickerBackKeys.removeAll { $0 == chord }
+        }
+    }
+
+    public func resetClickerKeys() {
+        update { s in
+            s.clickerForwardKeys = KeyChord.defaultForward
+            s.clickerBackKeys = KeyChord.defaultBack
+        }
     }
 
     // MARK: Files
@@ -403,6 +506,7 @@ public final class Engine {
         }
         pollInFlight = true
         defer { pollInFlight = false }
+        checkKeyboardPermission()
         repeat {
             pollAgain = false
             await pollBackgroundBackends()
@@ -420,6 +524,8 @@ public final class Engine {
                 context.app = chosen?.kind
                 context.perfectCueEnabled = settings.perfectCueEnabled
                 context.perfectCueConnected = perfectCueConnected
+                context.keyboardEnabled = settings.keyboardClickerEnabled
+                context.keyboardPermitted = keyboardPermitted
                 for format in FeedbackFormat.allCases {
                     let publisher = publishers[format]!
                     let targets = feedbackTargets(for: format)

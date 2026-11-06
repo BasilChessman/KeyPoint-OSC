@@ -338,10 +338,10 @@ struct LiveKeynoteMediaTests {
     @Test func pressOnTheSameSlideIsABuildStep() async throws {
         let backend = self.backend
         #expect(try await backend.poll().show?.buildPosition == 0)
-        await backend.clickerPressed(forward: true, at: Date())
+        await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
         #expect(try await backend.poll().show?.buildPosition == 1)
         fake.set(ordinal: 2) // the next press moves to slide 2
-        await backend.clickerPressed(forward: true, at: Date())
+        await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
         let show = try await backend.poll().show
         #expect(show?.currentSlide == 2 && show?.buildPosition == 0)
     }
@@ -351,16 +351,20 @@ struct LiveKeynoteMediaTests {
         let backend = self.backend
         _ = try await backend.poll()
         try await backend.perform(.next, options: BackendOptions())
-        await backend.clickerPressed(forward: true, at: Date())
+        await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
         #expect(try await backend.poll().show?.buildPosition == 1)
         // Either order.
-        await backend.clickerPressed(forward: true, at: Date())
+        await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
         try await backend.perform(.next, options: BackendOptions())
         #expect(try await backend.poll().show?.buildPosition == 2)
+        // A PerfectCue press seen by the bridge and as its USB keystroke is one click too.
+        await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
+        await backend.clickerPressed(forward: true, at: Date(), source: .keyboard)
+        #expect(try await backend.poll().show?.buildPosition == 3)
         // Separate clicks are both counted.
         try await Task.sleep(for: .seconds(1.1))
-        await backend.clickerPressed(forward: true, at: Date())
-        #expect(try await backend.poll().show?.buildPosition == 3)
+        await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
+        #expect(try await backend.poll().show?.buildPosition == 4)
     }
 
     @Test func pressStartsAnOnClickMovie() async throws {
@@ -374,7 +378,7 @@ struct LiveKeynoteMediaTests {
             media = try await backend.poll().show?.media
         }
         #expect(media?.state == .notready && media?.remaining == 10_000)
-        await backend.clickerPressed(forward: true, at: Date())
+        await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
         try await Task.sleep(for: .seconds(1))
         media = try await backend.poll().show?.media
         #expect(media?.state == .playing)

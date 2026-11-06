@@ -21,7 +21,11 @@ final class MockBackend: SlideBackend, @unchecked Sendable {
     func poll() async throws -> BackendSnapshot { snapshot }
     func perform(_ action: SlideAction, options: BackendOptions) async throws { performed.append(action) }
     private(set) var clicker: [Bool] = []
-    func clickerPressed(forward: Bool, at time: Date) async { clicker.append(forward) }
+    private(set) var clickSources: [ClickSource] = []
+    func clickerPressed(forward: Bool, at time: Date, source: ClickSource) async {
+        clicker.append(forward)
+        clickSources.append(source)
+    }
 }
 
 final class RecordingSink: FeedbackSink, @unchecked Sendable {

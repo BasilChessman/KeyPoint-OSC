@@ -12,6 +12,9 @@ public struct FeedbackContext: Equatable, Sendable {
     /// PerfectCue bridge listening, reported under the KeyPoint prefix only.
     public var perfectCueEnabled = false
     public var perfectCueConnected = false
+    /// Keyboard clicker listening, reported under the KeyPoint prefix only.
+    public var keyboardEnabled = false
+    public var keyboardPermitted = false
 
     public init(capabilities: Set<Capability>, filesEnabled: Bool = false, activeFolder: String = "",
                 activeFolderFullPath: String = "", app: BackendKind? = nil) {
@@ -90,6 +93,8 @@ public final class FeedbackPublisher {
             add("app", .string(context.app?.rawValue ?? "none"))
             add("perfectcue/enabled", .bool(context.perfectCueEnabled))
             add("perfectcue/connected", .bool(context.perfectCueEnabled && context.perfectCueConnected))
+            add("keyboard/enabled", .bool(context.keyboardEnabled))
+            add("keyboard/permission", .bool(context.keyboardPermitted))
             add("capabilities", .string(JSONValue.array(Capability.allCases.filter(caps.contains).map { .string($0.rawValue) }).serialized()))
         }
 

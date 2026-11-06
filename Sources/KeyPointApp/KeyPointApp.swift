@@ -55,6 +55,7 @@ struct KeyPointApp: App {
             settings: SettingsStore.load(),
             sink: UDPSender(),
             version: "KeyPoint OSC \(version)",
+            keyboard: KeyboardClickerMonitor(),
             onSettingsChange: { SettingsStore.save($0) })
         _engine = State(initialValue: engine)
         engine.start()

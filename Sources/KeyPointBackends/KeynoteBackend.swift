@@ -40,9 +40,11 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     /// Recent visible ordinals and when they were seen, to tell where the show was when a
     /// clicker was pressed. Visible ordinal of the slide `mediaTimers` belong to.
     private var ordinals: [(at: Date, ordinal: Int)] = []
-    /// The last step counted, and whether it came from KeyPoint or the clicker. A Companion
-    /// button that sends both KeyPoint's next and a PerfectCue Forward is one click, not two.
-    private var lastCounted: (forward: Bool, at: Date, clicker: Bool)?
+    /// Where a counted step came from. One press can arrive more than once: a Companion button
+    /// sending both KeyPoint's next and a PerfectCue Forward, or a PerfectCue press seen both by
+    /// the bridge and as its USB keystroke. Steps from different sources this close are one click.
+    enum StepSource: Equatable { case keypoint, bridge, keyboard }
+    private var lastCounted: (forward: Bool, at: Date, source: StepSource)?
     static let sameClickWindow: TimeInterval = 1
     private var mediaOrdinal: Int?
 
@@ -144,7 +146,7 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
             let forward = action == .next
             let sent = Date()
             let (before, after) = try step(forward ? "show next" : "show previous", options: options)
-            if isSameClick(forward: forward, at: sent, clicker: false) {
+            if isSameClick(forward: forward, at: sent, source: .keypoint) {
                 noteOrdinal(after, at: Date())
             } else {
                 tracker.stepped(forward: forward, sameSlide: before == after && before > 0)
@@ -203,14 +205,15 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
 
     // MARK: Clicker
 
-    public func clickerPressed(forward: Bool, at time: Date) async {
-        try? await worker.run { try self.clickerSync(forward: forward, at: time) }
+    public func clickerPressed(forward: Bool, at time: Date, source: ClickSource) async {
+        try? await worker.run { try self.clickerSync(forward: forward, at: time, source: source) }
     }
 
-    /// A PerfectCue press: the base station has sent the keystroke to Keynote. Compare the slide
-    /// before the press with the slide after it to tell a build step from a slide change.
-    func clickerSync(forward: Bool, at time: Date) throws {
-        if isSameClick(forward: forward, at: time, clicker: true) { return }
+    /// A clicker press that has already reached Keynote (a PerfectCue press, or a key on this Mac).
+    /// Compare the slide before the press with the slide after it to tell a build step from a
+    /// slide change.
+    func clickerSync(forward: Bool, at time: Date, source: ClickSource = .bridge) throws {
+        if isSameClick(forward: forward, at: time, source: source == .bridge ? .bridge : .keyboard) { return }
         // The last ordinal seen before the press (allowing for the keystroke to land after it).
         guard let before = ordinals.last(where: { $0.at <= time.addingTimeInterval(0.05) })?.ordinal, before > 0 else { return }
         // Keynote updates the current slide about 100 ms after the key.
@@ -228,13 +231,13 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
 
     /// True if a step from the other source in the same direction was just counted: the same
     /// Companion button press arriving twice. Otherwise records this one.
-    private func isSameClick(forward: Bool, at time: Date, clicker: Bool) -> Bool {
-        if let last = lastCounted, last.forward == forward, last.clicker != clicker,
+    private func isSameClick(forward: Bool, at time: Date, source: StepSource) -> Bool {
+        if let last = lastCounted, last.forward == forward, last.source != source,
            abs(time.timeIntervalSince(last.at)) < Self.sameClickWindow {
             lastCounted = nil
             return true
         }
-        lastCounted = (forward, time, clicker)
+        lastCounted = (forward, time, source)
         return false
     }
 

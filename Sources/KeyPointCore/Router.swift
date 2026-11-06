@@ -94,6 +94,8 @@ public enum Router {
             }
             return .setPerfectCue(enabled: true, host: host, port: port)
         case "perfectcue/disable": return .setPerfectCue(enabled: false)
+        case "keyboard/enable": return .setKeyboardClicker(true)
+        case "keyboard/disable": return .setKeyboardClicker(false)
         default: return nil
         }
     }

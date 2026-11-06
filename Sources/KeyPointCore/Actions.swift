@@ -82,6 +82,8 @@ public enum Command: Equatable, Sendable {
     case selectApp(BackendMode)
     /// Turn listening to a PerfectCue bridge on or off, optionally at a new host and port.
     case setPerfectCue(enabled: Bool, host: String? = nil, port: UInt16? = nil)
+    /// Turn watching the keyboard for clicker keys on or off. Learning keys is local only.
+    case setKeyboardClicker(Bool)
 
     /// File commands need the local "allow file access" opt-in.
     public var needsFileAccess: Bool {
