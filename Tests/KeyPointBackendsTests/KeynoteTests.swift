@@ -38,16 +38,54 @@ import Testing
 
     @Test func buildTracker() {
         var t = KeynoteBuildTracker()
-        t.observe(slide: 2)
+        t.observe(slide: 2, count: nil)
         #expect(t.position == 0)
         t.stepped(forward: true, sameSlide: true)
         t.stepped(forward: true, sameSlide: true)
         #expect(t.position == 2)
         t.stepped(forward: false, sameSlide: false)
-        t.observe(slide: 1)
-        #expect(t.position == nil) // arrived backwards: build state unknown
+        t.observe(slide: 1, count: nil)
+        #expect(t.position == nil) // arrived backwards, no count: build state unknown
+        #expect(t.arrivedBackward)
         t.stepped(forward: true, sameSlide: false)
-        t.observe(slide: 2)
+        t.observe(slide: 2, count: nil)
+        #expect(t.position == 0)
+        #expect(!t.arrivedBackward)
+    }
+
+    @Test func buildTrackerWithTheFilesCount() {
+        var t = KeynoteBuildTracker()
+        t.observe(slide: 2, count: 3)
+        #expect(t.position == 0 && t.count == 3)
+        t.stepped(forward: true, sameSlide: false)
+        t.observe(slide: 3, count: 0)
+        t.stepped(forward: false, sameSlide: false)
+        t.observe(slide: 2, count: 3)
+        #expect(t.position == 3) // stepping back shows every build
+        #expect(t.arrivedBackward)
+        t.stepped(forward: false, sameSlide: true)
+        #expect(t.position == 2)
+    }
+
+    @Test func buildTrackerCountArrivesLate() {
+        var t = KeynoteBuildTracker()
+        t.observe(slide: 3, count: nil)
+        t.stepped(forward: false, sameSlide: false)
+        t.observe(slide: 2, count: nil)
+        t.stepped(forward: false, sameSlide: true) // still reading the file
+        #expect(t.position == nil)
+        t.observe(slide: 2, count: 4)
+        #expect(t.position == 3)
+    }
+
+    @Test func buildTrackerCapsAtTheCount() {
+        var t = KeynoteBuildTracker()
+        t.observe(slide: 2, count: 1)
+        t.stepped(forward: true, sameSlide: true)
+        t.stepped(forward: true, sameSlide: true) // pressed again while the build was animating
+        #expect(t.position == 1 && t.count == 1)
+        t.stepped(forward: true, sameSlide: false)
+        t.observe(slide: 3, count: 2)
         #expect(t.position == 0)
     }
 }
@@ -378,9 +416,13 @@ struct LiveKeynoteMediaTests {
             media = try await backend.poll().show?.media
         }
         #expect(media?.state == .notready && media?.remaining == 10_000)
+        var show = try await backend.poll().show
+        #expect(show?.buildCount == 1 && show?.buildPosition == 0) // the Start Movie step is one click
         await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
         try await Task.sleep(for: .seconds(1))
-        media = try await backend.poll().show?.media
+        show = try await backend.poll().show
+        media = show?.media
+        #expect(show?.buildPosition == 1)
         #expect(media?.state == .playing)
         #expect((media?.position ?? 0) >= 1000 && (media?.position ?? 0) < 1600)
     }

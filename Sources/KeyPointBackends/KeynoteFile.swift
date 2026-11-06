@@ -1,7 +1,7 @@
 import Foundation
 
-// Reads movie timing from a saved Keynote file. Keynote's scripting doesn't say when a movie
-// starts or how it's trimmed, but the file does. The format (IWA: Snappy-compressed protobuf
+// Reads movie timing and build steps from a saved Keynote file. Keynote's scripting doesn't
+// say when a movie starts, how it's trimmed or what builds a slide has, but the file does. The format (IWA: Snappy-compressed protobuf
 // objects in `Index/*.iwa`) is undocumented, so everything here was worked out by saving decks
 // that differ in one setting (see docs/capabilities.md). Any surprise makes the parse return
 // nil, and the backend falls back to timing from slide arrival.
@@ -27,9 +27,20 @@ struct KeynoteMovieStart: Equatable, Sendable {
     var offset: Int
 }
 
-/// Movies per slide, index 0 = slide 1, in the order they're drawn on the slide.
+/// Movies per slide, index 0 = slide 1, in the order they're drawn on the slide, and the
+/// number of clicks each slide's builds take.
 struct KeynoteDeckMedia: Equatable, Sendable {
     var slides: [[KeynoteFileMovie]]
+    /// On Click build steps per slide: the clicks it takes before the next one moves to the
+    /// next slide. Steps set to After or With run on their own and aren't counted.
+    var buildClicks: [Int] = []
+
+    /// Build clicks on `slide` (1-based), if the file has the same number of slides as the
+    /// open deck.
+    func buildClicks(slide: Int, slideCount: Int) -> Int? {
+        guard buildClicks.count == slideCount, slides.count == slideCount, slide >= 1, slide <= slideCount else { return nil }
+        return buildClicks[slide - 1]
+    }
 }
 
 /// One step in a slide's build order.
@@ -94,18 +105,21 @@ enum KeynoteFile {
               let tree = try Proto.fields(show.payload).message(3)
         else { throw IWA.Corrupt() }
         var slides: [[KeynoteFileMovie]] = []
+        var clicks: [Int] = []
         for nodeRef in tree.all(2) {
             guard let node = object(try Proto.fields(nodeRef).ref(), slideNodeType),
                   let slideID = node.messageRef(2), let slide = object(slideID, slideType)
             else { throw IWA.Corrupt() }
-            slides.append(try movies(slide: slide, object: object, dataNames: dataNames))
+            let chunks = buildChunks(slide: slide, object: object)
+            slides.append(movies(slide: slide, chunks: chunks, object: object, dataNames: dataNames))
+            clicks.append(chunks.filter { !$0.automatic }.count)
         }
-        return KeynoteDeckMedia(slides: slides)
+        return KeynoteDeckMedia(slides: slides, buildClicks: clicks)
     }
 
-    private static func movies(slide: [ProtoField], object: (UInt64?, UInt32) -> [ProtoField]?,
-                               dataNames: [String]) throws -> [KeynoteFileMovie] {
-        let chunks: [KeynoteBuildChunk] = slide.all(43).compactMap { ref in
+    /// The slide's build steps, in Build Order order.
+    private static func buildChunks(slide: [ProtoField], object: (UInt64?, UInt32) -> [ProtoField]?) -> [KeynoteBuildChunk] {
+        slide.all(43).compactMap { ref in
             guard let chunk = object(try? Proto.fields(ref).ref(), buildChunkType),
                   let build = chunk.messageRef(1), let buildFields = object(build, buildType)
             else { return nil }
@@ -115,6 +129,10 @@ enum KeynoteFile {
                 automatic: (chunk.varint(5) ?? 0) != 0, withPrevious: chunk.varint(6) == 0,
                 delay: chunk.double(3) ?? 0, duration: chunk.double(4) ?? 0)
         }
+    }
+
+    private static func movies(slide: [ProtoField], chunks: [KeynoteBuildChunk], object: (UInt64?, UInt32) -> [ProtoField]?,
+                               dataNames: [String]) -> [KeynoteFileMovie] {
         let transition = slide.message(4).flatMap { $0.message(2) }.flatMap { $0.message(8) }
         let transitionLength = transition.flatMap { t in t.string(2).map { $0 == "none" ? 0 : t.double(3) ?? 0 } } ?? 0
         var out: [KeynoteFileMovie] = []

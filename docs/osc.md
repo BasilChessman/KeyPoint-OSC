@@ -51,8 +51,8 @@ Sent only when a value changes. `feedbacks/refresh` (or a new controller connect
 | `presentation/name`, `presentation/slides/count[/visible]` | ✅ | ✅ |
 | `slideshow/state` (`edit`, `running`, `paused`) | ✅ | ✅ (never `paused`) |
 | `slideshow/currentslide`, `slideshow/slidesremaining` | ✅ | ✅ |
-| `slideshow/builds/count`, `remaining` | ⚠️ count = number of animation effects (effects set to "with/after previous" make it higher than the number of clicks) | ❌ |
-| `slideshow/builds/position` | ⚠️ counted from KeyPoint's own next/previous; clicks made directly on the Mac aren't seen | ⚠️ same; unknown after stepping back onto a slide |
+| `slideshow/builds/count`, `remaining` | ✅ count = clicks, from the saved file (effects set to With/After Previous don't count); if the file doesn't match the open slide, every effect counts | ✅ count = On Click build steps, from the saved file; left out while the deck has unsaved changes |
+| `slideshow/builds/position` | ⚠️ counted from KeyPoint's own next/previous; clicks made directly on the Mac aren't seen | ⚠️ same, plus clicker keys and PerfectCue presses when those are on; unknown after stepping back onto a slide only if the count isn't known |
 | `slideshow/notes` (ASCII, CR line breaks), `slideshow/notes-utf8` (blob) | ✅ | ✅ |
 | `slideshow/section/index`, `name`, `slidesremaining` | ✅ | ❌ |
 | `slideshow/media/state`, `position` | ✅ updated about 3 times a second while playing | ⚠️ estimated: a timer from when the saved file says the movie starts (see below) |

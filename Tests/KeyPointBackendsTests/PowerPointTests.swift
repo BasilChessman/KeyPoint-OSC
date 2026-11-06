@@ -181,6 +181,25 @@ struct DumpScripts {
         #expect(resolver.clip(deckPath: "/no/such.pptx", slide: 2) == nil)
     }
 
+    /// A slide saved by PowerPoint 16 with three On Click effects, one With Previous and one
+    /// After Previous.
+    @Test func buildClicksFromSavedSlide() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/pptx/slide-with-after.xml")
+        #expect(try PPTXBuilds.builds(slideXML: Data(contentsOf: url)) == SlideBuilds(effects: 5, clicks: 3))
+        let none = #"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld/></p:sld>"#
+        #expect(try PPTXBuilds.builds(slideXML: Data(none.utf8)) == SlideBuilds(effects: 0, clicks: 0))
+    }
+
+    @Test func buildsForEverySlide() throws {
+        let deck = try Self.makeDeck(trim: "")
+        defer { try? FileManager.default.removeItem(at: deck.deletingLastPathComponent()) }
+        let builds = try #require(PPTXBuilds.deck(deckPath: deck.path))
+        #expect(builds.slides == [SlideBuilds(effects: 0, clicks: 0), SlideBuilds(effects: 0, clicks: 0)])
+        #expect(builds.builds(slide: 2, slideCount: 2) != nil)
+        #expect(builds.builds(slide: 2, slideCount: 3) == nil)
+        #expect(PPTXBuilds.deck(deckPath: "/no/such.pptx") == nil)
+    }
+
     static func makeDeck(trim: String) throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kp-deck-\(UUID().uuidString)")
         let r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -189,7 +208,7 @@ struct DumpScripts {
         let a = "http://schemas.openxmlformats.org/drawingml/2006/main"
         let p14 = "http://schemas.microsoft.com/office/powerpoint/2010/main"
         let files: [String: Data] = [
-            "ppt/presentation.xml": Data(#"<p:presentation xmlns:p="\#(p)" xmlns:r="\#(r)"><p:sldIdLst><p:sldId id="256" r:id="rId7"/><p:sldId id="257" r:id="rId3"/></p:sldIdLst></p:presentation>"#.utf8),
+            "ppt/presentation.xml": Data(#"<p:presentation xmlns:p="\#(p)" xmlns:r="\#(r)"><p:sldIdLst><p:sldId id="256" r:id="rId7"/><p:sldId id="257" r:id="rId3"/></p:sldIdLst><p:extLst><p:ext><p14:sectionLst xmlns:p14="\#(p14)"><p14:section name="A"><p14:sldIdLst><p14:sldId id="256"/><p14:sldId id="257"/></p14:sldIdLst></p14:section></p14:sectionLst></p:ext></p:extLst></p:presentation>"#.utf8),
             "ppt/_rels/presentation.xml.rels": Data(#"<Relationships xmlns="\#(pkg)"><Relationship Id="rId3" Type="x" Target="slides/slide1.xml"/><Relationship Id="rId7" Type="x" Target="slides/slide2.xml"/></Relationships>"#.utf8),
             "ppt/slides/slide2.xml": Data(#"<p:sld xmlns:p="\#(p)"><p:cSld><p:spTree/></p:cSld></p:sld>"#.utf8),
             "ppt/slides/_rels/slide2.xml.rels": Data(#"<Relationships xmlns="\#(pkg)"/>"#.utf8),
@@ -242,5 +261,16 @@ struct SpikeDeckMedia {
         let clip = PPTXMedia.clip(deckPath: path, slide: 4)
         print("SPIKE clip: \(String(describing: clip)) in \(Date().timeIntervalSince(start)) s")
         #expect(clip != nil)
+    }
+}
+
+/// Prints the click counts KeyPoint reads from any saved .pptx: KEYPOINT_PPTX=/path/deck.pptx scripts/test.sh --filter PrintPPTXBuilds
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["KEYPOINT_PPTX"] != nil))
+struct PrintPPTXBuilds {
+    @Test func printBuilds() throws {
+        let deck = try #require(PPTXBuilds.deck(deckPath: ProcessInfo.processInfo.environment["KEYPOINT_PPTX"]!))
+        for (i, b) in deck.slides.enumerated() {
+            print("PPTX slide \(i + 1): " + (b.map { "\($0.clicks) clicks, \($0.effects) effects" } ?? "unreadable"))
+        }
     }
 }

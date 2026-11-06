@@ -7,12 +7,13 @@ import KeyPointCore
 public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     public let kind = BackendKind.keynote
     public let bundleIdentifier = "com.apple.iWork.Keynote"
-    /// No sections, build counts, media control or laser pointer: Keynote doesn't expose them.
-    /// Black/white is a key press, so its state is what we last set, not read back.
+    /// No sections, media control or laser pointer: Keynote doesn't expose them. Build counts
+    /// come from the saved file. Black/white is a key press, so its state is what we last set,
+    /// not read back.
     /// Media values are an estimate: a timer started when the saved file says the movie starts
     /// (see `KeynoteMediaTimer`).
     public let capabilities: Set<Capability> = [
-        .navigate, .gotoSlide, .hideSlides, .startShow, .endShow, .blackWhite, .buildPosition, .notes, .openClose,
+        .navigate, .gotoSlide, .hideSlides, .startShow, .endShow, .blackWhite, .buildCount, .buildPosition, .notes, .openClose,
         .activatePresentation, .mediaDuration, .mediaEstimated,
     ]
 
@@ -77,16 +78,21 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
             mediaTimers = []
             clicks = [:]
             ordinals = []
+            // Read the saved file before the show, so builds and movie timing are ready on the first slide.
+            if let front = raw.documents.first(where: { $0.name == raw.front }) {
+                _ = decks.lookup(deckPath: front.path, item: "deck")
+            }
             return BackendSnapshot(presentations: presentations, activePresentation: raw.front.isEmpty ? nil : raw.front)
         }
         // Keynote numbers slides by position among visible ones; map back to the real index.
         let slide = Self.realIndex(ofVisible: raw.visibleOrdinal, skipped: doc.skipped) ?? lastSlide ?? 1
         if slide != lastSlide { overlay = .none }
         lastSlide = slide
-        tracker.observe(slide: slide)
         noteOrdinal(raw.visibleOrdinal, at: polledAt)
         // Read the saved file early, so its movie timing is ready when a movie slide comes up.
         let deck = decks.lookup(deckPath: doc.path, item: "deck")
+        // With unsaved changes, the saved file's builds may not be the ones on screen.
+        tracker.observe(slide: slide, count: doc.saved ? (deck ?? nil)?.buildClicks(slide: slide, slideCount: doc.skipped.count) : nil)
         if slide != mediaSlide {
             mediaSlide = slide
             mediaOrdinal = raw.visibleOrdinal
@@ -100,7 +106,7 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
             }
             let previous = mediaTimers
             let movies = (try? KeynoteMovie.parseAll(try script(KeynoteScripts.movie(document: doc.name, slide: slide)))) ?? []
-            mediaTimers = movies.map { KeynoteMediaTimer(movie: $0, arrivedAt: arrived, arrivedBackward: tracker.position == nil) }
+            mediaTimers = movies.map { KeynoteMediaTimer(movie: $0, arrivedAt: arrived, arrivedBackward: tracker.arrivedBackward) }
             for i in mediaTimers.indices {
                 mediaTimers[i].continueFrom(previous.first { $0.movie.fileName == mediaTimers[i].movie.fileName },
                                             clicks: clicks, now: polledAt)
@@ -114,7 +120,7 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
             clips.clip(deckPath: doc.path, item: timer.movie.fileName)?.fileDuration
         }
         let show = ShowInfo(presentationName: doc.name, currentSlide: slide, state: .running, overlay: overlay,
-                            buildPosition: tracker.position, notes: raw.notes, media: media)
+                            buildPosition: tracker.position, buildCount: tracker.count, notes: raw.notes, media: media)
         return BackendSnapshot(presentations: presentations, activePresentation: doc.name, show: show)
     }
 
@@ -313,33 +319,60 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     }
 }
 
-/// Counts our own steps through builds. Keynote doesn't report build counts, so after
-/// stepping back onto a slide the position is unknown until the slide changes again.
+/// Counts steps through a slide's builds: our own next/previous plus clicker presses. Keynote
+/// doesn't report builds, so the number of clicks a slide's builds take (`count`) comes from
+/// the saved file. Without it, the position after stepping back onto a slide is unknown.
+/// A press while a build is still animating may only finish that animation, so the count can
+/// run ahead; it's capped at `count` and starts again on the next slide.
 struct KeynoteBuildTracker {
     private(set) var position: Int?
+    /// Build clicks on the current slide, from the saved file. nil if not known.
+    private(set) var count: Int?
+    /// The current slide was reached by stepping back, so its builds had all run.
+    private(set) var arrivedBackward = false
     private var slide: Int?
     private var pendingBackward = false
+    /// Steps on the current slide while the position was unknown, so it can be worked out
+    /// once the count is known.
+    private var unknownSteps = 0
 
     mutating func reset() {
-        position = nil
-        slide = nil
-        pendingBackward = false
+        self = KeynoteBuildTracker()
     }
 
     mutating func stepped(forward: Bool, sameSlide: Bool) {
         if sameSlide {
-            if let pos = position { position = forward ? pos + 1 : max(pos - 1, 0) }
+            if let pos = position {
+                position = forward ? pos + 1 : max(pos - 1, 0)
+            } else {
+                unknownSteps += forward ? 1 : -1
+            }
+            cap()
         } else {
             pendingBackward = !forward
             slide = nil
         }
     }
 
-    mutating func observe(slide current: Int) {
-        guard slide != current else { return }
-        slide = current
-        position = pendingBackward ? nil : 0
-        pendingBackward = false
+    /// `count`: the slide's build clicks from the saved file, nil if not known (yet).
+    mutating func observe(slide current: Int, count fileCount: Int?) {
+        if slide != current {
+            slide = current
+            arrivedBackward = pendingBackward
+            pendingBackward = false
+            unknownSteps = 0
+            position = arrivedBackward ? nil : 0
+        }
+        count = fileCount
+        if position == nil, arrivedBackward, let count {
+            position = count + unknownSteps
+        }
+        cap()
+    }
+
+    private mutating func cap() {
+        guard let count, let position else { return }
+        self.position = min(max(position, 0), count)
     }
 }
 

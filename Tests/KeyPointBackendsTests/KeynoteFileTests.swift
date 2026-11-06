@@ -41,6 +41,22 @@ import Testing
         #expect(try movies("no-play-across")[0].playAcrossSlides)
     }
 
+    /// Only On Click steps take a click; After and With steps run on their own.
+    @Test func buildClicks() throws {
+        func clicks(_ name: String) throws -> Int? {
+            try #require(KeynoteFile.media(deckPath: Self.fixtures.appendingPathComponent(name + ".key").path))
+                .buildClicks(slide: 1, slideCount: 1)
+        }
+        #expect(try clicks("on-click") == 1)
+        #expect(try clicks("after-transition-2.5s") == 0)
+        #expect(try clicks("two-on-click") == 2)
+        #expect(try clicks("two-after-build1-1.5s") == 1)
+        #expect(try clicks("two-with-build1-0.75s") == 1)
+        let deck = try #require(KeynoteFile.media(deckPath: Self.fixtures.appendingPathComponent("two-on-click.key").path))
+        #expect(deck.buildClicks(slide: 1, slideCount: 2) == nil) // the open deck has another slide: not this file
+        #expect(deck.buildClicks(slide: 2, slideCount: 1) == nil)
+    }
+
     @Test func transitionDelaysFirstAutomaticStep() {
         let step = KeynoteBuildChunk(drawable: 1, movieStart: true, automatic: true, withPrevious: false, delay: 0.5, duration: 0.5)
         #expect(KeynoteFile.start(of: 1, chunks: [step], transition: 2.25) == KeynoteMovieStart(click: 0, offset: 2750))
@@ -91,15 +107,17 @@ struct SpikeKeynoteFile {
         #expect(deck.slides[3].first?.storedName == "JennaJeep-9082.mov")
         #expect(deck.slides[3].first?.start == KeynoteMovieStart(click: 0, offset: 0))
         #expect(deck.slides[3].first?.playableLength == 59078)
+        #expect(deck.buildClicks[1] > 0) // slide 2 has builds
     }
 }
 
-/// Prints the movie timing KeyPoint reads from any saved deck: KEYPOINT_DECK=/path/deck.key scripts/test.sh --filter PrintDeck
+/// Prints the build clicks and movie timing KeyPoint reads from any saved deck: KEYPOINT_DECK=/path/deck.key scripts/test.sh --filter PrintDeck
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["KEYPOINT_DECK"] != nil))
 struct PrintDeck {
     @Test func printDeck() throws {
         let path = ProcessInfo.processInfo.environment["KEYPOINT_DECK"]!
         let deck = try #require(KeynoteFile.media(deckPath: path))
+        print("DECK build clicks per slide: \(deck.buildClicks)")
         for (i, movies) in deck.slides.enumerated() where !movies.isEmpty {
             for m in movies {
                 print("DECK slide \(i + 1): \(m.storedName ?? "?") click \(m.start.click) +\(m.start.offset) ms, "

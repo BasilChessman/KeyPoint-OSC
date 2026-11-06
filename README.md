@@ -62,7 +62,7 @@ The file actions only work after **Allow file open/close over OSC** is turned on
 | Slide show state | Show running (or paused), running, paused, not in a show | Green |
 | Black / white screen is on | Black or white | Red |
 | Current slide is | Slide number | Green |
-| Current slide has builds remaining (PowerPoint) | | Amber |
+| Current slide has builds remaining | | Amber |
 | On the last visible slide | | Amber |
 | Current section is (PowerPoint) | Section name | Green |
 | Current presentation is | File name | Green |
@@ -92,8 +92,8 @@ Use these as `$(keypoint:name)`, with your connection's label in place of `keypo
 | `current_slide` | Current slide number |
 | `slides_remaining` | Visible slides after the current one |
 | `build_position` | Builds shown on the current slide |
-| `build_count` | Builds on the current slide (PowerPoint) |
-| `build_remaining` | Builds left on the current slide (PowerPoint) |
+| `build_count` | Clicks the current slide's builds take |
+| `build_remaining` | Build clicks left on the current slide |
 | `notes` | Presenter notes of the current slide |
 | `section_index` | Current section number (PowerPoint) |
 | `section_name` | Current section name (PowerPoint) |
@@ -121,10 +121,12 @@ Use these as `$(keypoint:name)`, with your connection's label in place of `keypo
 | Pause / resume auto-advance | ✅ | — |
 | Media play / pause / stop / seek | ✅ | — |
 | Media length and time remaining | ✅ from the saved file | ⚠️ estimate only, see below |
-| Build count and builds remaining | ✅ | — |
+| Build count and builds remaining | ✅ from the saved file | ✅ from the saved file |
 | Notes, slide counts, slides remaining | ✅ | ✅ |
 
-PowerPoint doesn't report a video's length, so KeyPoint reads it from the saved file, including any trims. Save the deck after adding or trimming a video. For the OSC addresses behind all of this, see [docs/osc.md](docs/osc.md).
+PowerPoint doesn't report a video's length, so KeyPoint reads it from the saved file, including any trims. Save the deck after adding or trimming a video.
+
+Builds are counted in clicks. Neither app reports which builds wait for a click, so KeyPoint reads that from the saved file too: an animation or build set to run with or after the previous one doesn't add to the count. Save the deck after changing builds. If the file doesn't match the open deck (in Keynote, any unsaved change), PowerPoint counts every effect and Keynote leaves the count out. For the OSC addresses behind all of this, see [docs/osc.md](docs/osc.md).
 
 ### Keynote media time is an estimate
 
@@ -236,7 +238,8 @@ KeyPoint replies to each module connection at the address and port it sends from
 - **Keynote next/previous brings Keynote to the front**: Keynote only accepts these when it's frontmost. Turn off "Allow bringing the app to the front" to stop this; next/previous then fail while Keynote is in the background.
 - **PowerPoint go-to-slide flickers**: PowerPoint for Mac can't jump within a running show by script, so KeyPoint restarts the show at that slide. Grant Accessibility so the rest of the deck stays reachable afterwards.
 - **Keynote media countdown doesn't match the movie, or stays at `notready`**: it's an estimate based on the saved file and on clicks sent through KeyPoint. Save the deck, and advance with Companion rather than a clicker on the Mac. See [Keynote media time is an estimate](#keynote-media-time-is-an-estimate).
-- **Build position looks wrong**: it's counted from KeyPoint's own next/previous commands, plus clicker keys or PerfectCue presses if you turned those on. Other clicks on the Mac aren't seen until the slide changes.
+- **Build position looks wrong**: it's counted from KeyPoint's own next/previous commands, plus clicker keys or PerfectCue presses if you turned those on. Other clicks on the Mac aren't seen until the slide changes. Pressing again while a build is still animating may only finish the animation, which KeyPoint can count as a step; the position never goes past the count and is right again on the next slide.
+- **Build count is missing or too high**: save the deck. The count of clicks comes from the saved file.
 - **Clicker keys aren't counted**: check Input Monitoring in the menu (quit and reopen KeyPoint OSC after granting it), that Keynote is in front during the show, and that the clicker's keys are in the Forward/Back lists (use **Learn**).
 - **Logs**: `log stream --predicate 'subsystem == "org.keypointosc.KeyPointOSC"'`
 

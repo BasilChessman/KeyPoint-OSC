@@ -17,6 +17,9 @@ public final class PowerPointBackend: SlideBackend, @unchecked Sendable {
     private let monitor: AppMonitor?
     /// Clip lengths, read from the saved file (PowerPoint's scripting doesn't expose them).
     private let clips = MediaDurationResolver.pptx()
+    /// Which animations wait for a click, from the saved file (the scripting only gives the
+    /// number of effects, not their triggers).
+    private let builds = DeckFileCache<DeckBuilds>.pptxBuilds()
 
     // Touched only on `worker`'s queue.
     private var structureCache: [String: (slideCount: Int, fetched: Date, hidden: [Bool], sections: [SectionInfo])] = [:]
@@ -81,21 +84,39 @@ public final class PowerPointBackend: SlideBackend, @unchecked Sendable {
         guard let rawShow = raw.show else {
             tracking.reset()
             let active = raw.active.isEmpty ? presentations.first?.name : raw.active
+            // Read the saved file's builds before the show, so the count is right from the first slide.
+            if let p = presentations.first(where: { $0.name == active }), !p.path.isEmpty {
+                _ = builds.lookup(deckPath: (p.path as NSString).appendingPathComponent(p.name), item: "deck")
+            }
             return BackendSnapshot(presentations: presentations, activePresentation: active)
         }
         let slideCount = presentations.first { $0.name == rawShow.presentation }?.slideCount ?? 0
         let slide = rawShow.slideIndex > 0 ? rawShow.slideIndex : slideCount
-        tracking.observe(slide: slide, buildCount: rawShow.effectCount)
+        let buildCount = clickCount(effects: rawShow.effectCount, slide: slide, presentation: rawShow.presentation, in: presentations)
+        tracking.observe(slide: slide, buildCount: buildCount)
         let show = ShowInfo(
             presentationName: rawShow.presentation,
             currentSlide: slide,
             state: rawShow.state == "paused" ? .paused : .running,
             overlay: rawShow.state == "black" ? .black : rawShow.state == "white" ? .white : .none,
             buildPosition: tracking.position,
-            buildCount: rawShow.effectCount,
+            buildCount: buildCount,
             notes: rawShow.notes,
             media: withClip(rawShow.media, slide: slide, presentation: rawShow.presentation, in: presentations))
         return BackendSnapshot(presentations: presentations, activePresentation: rawShow.presentation, show: show)
+    }
+
+    /// The clicks the slide's animations take. Effects set to With Previous or After Previous
+    /// don't take a click; the saved file says which those are. If the file doesn't have the
+    /// same number of effects as the open slide (unsaved changes) or isn't read yet, every
+    /// effect counts as a click.
+    private func clickCount(effects: Int, slide: Int, presentation name: String, in presentations: [PresentationInfo]) -> Int {
+        guard effects > 0, let presentation = presentations.first(where: { $0.name == name }), !presentation.path.isEmpty,
+              let deck = builds.clip(deckPath: (presentation.path as NSString).appendingPathComponent(name), item: "deck"),
+              let file = deck.builds(slide: slide, slideCount: presentation.slideCount),
+              file.effects == effects
+        else { return effects }
+        return file.clicks
     }
 
     /// Adds the clip length and trims, once the background read of the saved file has them.

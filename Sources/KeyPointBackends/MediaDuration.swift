@@ -49,6 +49,11 @@ final class DeckFileCache<Value: Sendable>: @unchecked Sendable {
         MediaDurationResolver { path, item in Int(item).flatMap { PPTXMedia.clip(deckPath: path, slide: $0) } }
     }
 
+    /// PowerPoint: the animations on every slide of a saved .pptx (`item` is ignored).
+    static func pptxBuilds() -> DeckFileCache<DeckBuilds> {
+        DeckFileCache<DeckBuilds> { path, _ in PPTXBuilds.deck(deckPath: path) }
+    }
+
     /// Keynote: the movie or audio file named `item`, stored in a saved .key.
     static func keynote() -> MediaDurationResolver {
         MediaDurationResolver { path, item in KeynoteMedia.clip(deckPath: path, fileName: item) }
@@ -92,6 +97,47 @@ final class DeckFileCache<Value: Sendable>: @unchecked Sendable {
     }
 }
 
+/// A slide's animations in a saved .pptx: every effect in the main sequence, and how many of
+/// them wait for a click. Effects set to With Previous or After Previous run on their own.
+struct SlideBuilds: Equatable, Sendable {
+    var effects: Int
+    var clicks: Int
+}
+
+/// Animations per slide of a saved .pptx, index 0 = slide 1 (nil where a slide can't be read).
+struct DeckBuilds: Equatable, Sendable {
+    var slides: [SlideBuilds?]
+
+    func builds(slide: Int, slideCount: Int) -> SlideBuilds? {
+        guard slides.count == slideCount, slide >= 1, slide <= slideCount else { return nil }
+        return slides[slide - 1]
+    }
+}
+
+enum PPTXBuilds {
+    /// Reads every slide at once, so moving to another slide doesn't wait for the file.
+    static func deck(deckPath: String) -> DeckBuilds? {
+        guard let parts = try? PPTXMedia.slideParts(deckPath: deckPath) else { return nil }
+        return DeckBuilds(slides: parts.map { part in
+            part.flatMap { try? Zip.read($0, from: deckPath) }.flatMap { try? builds(slideXML: $0) }
+        })
+    }
+
+    /// Effects are `p:cTn` nodes with `nodeType` `clickEffect`, `withEffect` or `afterEffect`
+    /// under the main sequence. Interactive sequences (triggered by clicking a shape) aren't
+    /// part of next/previous and aren't counted.
+    static func builds(slideXML data: Data) throws -> SlideBuilds {
+        let doc = try XMLDocument(data: data)
+        let path = "//*[local-name()='cTn'][@nodeType='mainSeq']//*[local-name()='cTn']"
+        func count(_ types: [String]) throws -> Int {
+            let test = types.map { "@nodeType='\($0)'" }.joined(separator: " or ")
+            return try doc.nodes(forXPath: "\(path)[\(test)]").count
+        }
+        return SlideBuilds(effects: try count(["clickEffect", "withEffect", "afterEffect"]),
+                           clicks: try count(["clickEffect"]))
+    }
+}
+
 /// Reads media info from an Office Open XML presentation (a zip of XML parts).
 enum PPTXMedia {
     static let relNS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -117,14 +163,7 @@ enum PPTXMedia {
     /// The first top-level media item on the slide: the one PowerPoint's `shapes of slide`
     /// loop (and so the media actions) finds first.
     static func media(deckPath: String, slide: Int) throws -> Media? {
-        let presentationRels = try relationships(try Zip.read("ppt/_rels/presentation.xml.rels", from: deckPath))
-        let presentation = try XMLDocument(data: try Zip.read("ppt/presentation.xml", from: deckPath))
-        let slideIDs = try presentation.nodes(forXPath: "//*[local-name()='sldIdLst']/*[local-name()='sldId']")
-        guard slide <= slideIDs.count,
-              let rid = (slideIDs[slide - 1] as? XMLElement)?.attribute(forLocalName: "id", uri: relNS)?.stringValue,
-              let target = presentationRels[rid]?.target
-        else { return nil }
-        let slidePath = resolve(target, from: "ppt/presentation.xml")
+        guard let slidePath = try slidePart(deckPath: deckPath, slide: slide) else { return nil }
         let slideRels = try relationships(try Zip.read(relsPath(for: slidePath), from: deckPath))
         let slideXML = try XMLDocument(data: try Zip.read(slidePath, from: deckPath))
         guard let item = try firstMediaItem(in: slideXML) else { return nil }
@@ -138,6 +177,26 @@ enum PPTXMedia {
             source = .entry(resolve(rel.target, from: slidePath))
         }
         return Media(source: source, trimStart: item.trimStart, trimEnd: item.trimEnd)
+    }
+
+    /// The zip entry of slide `slide` (1-based, in show order), e.g. `ppt/slides/slide7.xml`.
+    static func slidePart(deckPath: String, slide: Int) throws -> String? {
+        let parts = try slideParts(deckPath: deckPath)
+        return slide >= 1 && slide <= parts.count ? parts[slide - 1] : nil
+    }
+
+    /// The zip entry of every slide, in show order (nil where it can't be resolved).
+    static func slideParts(deckPath: String) throws -> [String?] {
+        let presentationRels = try relationships(try Zip.read("ppt/_rels/presentation.xml.rels", from: deckPath))
+        let presentation = try XMLDocument(data: try Zip.read("ppt/presentation.xml", from: deckPath))
+        // Only the presentation's own list: a deck with sections repeats the slide IDs in its section list.
+        let slideIDs = try presentation.nodes(forXPath: "/*[local-name()='presentation']/*[local-name()='sldIdLst']/*[local-name()='sldId']")
+        return slideIDs.map { node in
+            guard let rid = (node as? XMLElement)?.attribute(forLocalName: "id", uri: relNS)?.stringValue,
+                  let target = presentationRels[rid]?.target
+            else { return nil }
+            return resolve(target, from: "ppt/presentation.xml")
+        }
     }
 
     private struct Item {
