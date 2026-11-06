@@ -155,8 +155,8 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
             if isSameClick(forward: forward, at: sent, source: .keypoint) {
                 noteOrdinal(after, at: Date())
             } else {
-                tracker.stepped(forward: forward, sameSlide: before == after && before > 0)
-                noteStep(forward: forward, before: before, after: after, at: sent)
+                let build = tracker.stepped(forward: forward, sameSlide: before == after && before > 0)
+                noteStep(forward: forward, before: before, after: after, at: sent, build: build)
             }
             overlay = .none // any navigation key clears Keynote's black/white screen
         case .gotoFirst:
@@ -226,9 +226,9 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
         let wait = 0.2 - Date().timeIntervalSince(time)
         if wait > 0 { Thread.sleep(forTimeInterval: wait) }
         guard let after = Int(try script(KeynoteScripts.currentOrdinal)), after > 0 else { return }
-        tracker.stepped(forward: forward, sameSlide: before == after)
+        let build = tracker.stepped(forward: forward, sameSlide: before == after)
         overlay = .none // any navigation key clears Keynote's black/white screen
-        noteStep(forward: forward, before: before, after: after, at: time)
+        noteStep(forward: forward, before: before, after: after, at: time, build: build)
         // A poll may have seen the new slide first: it arrived at the press, not at that poll.
         if before != after, mediaOrdinal == after {
             for i in mediaTimers.indices where time < mediaTimers[i].arrivedAt { mediaTimers[i].arrivedAt = time }
@@ -253,12 +253,14 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     }
 
     /// Remembers when each click on the current slide was sent, for movies that start on a click.
-    private func noteStep(forward: Bool, before: Int, after: Int, at time: Date) {
+    /// `build`: false if the tracker says the press ran no build (all had run), so no click is
+    /// re-timed: that would restart the last click's movie.
+    private func noteStep(forward: Bool, before: Int, after: Int, at time: Date, build: Bool = true) {
         guard after > 0 else { return }
         noteOrdinal(after, at: Date())
         if before == after {
             if clickOrdinal != after { clicks = [:] }
-            if let position = tracker.position {
+            if build, let position = tracker.position {
                 if forward { clicks[position] = time } else { clicks = clicks.filter { $0.key <= position } }
             }
         } else {
@@ -340,8 +342,13 @@ struct KeynoteBuildTracker {
         self = KeynoteBuildTracker()
     }
 
-    mutating func stepped(forward: Bool, sameSlide: Bool) {
+    /// Returns false for a forward step on the same slide with every build already run: that
+    /// press is leaving the slide (Keynote reports the old slide until its transition ends) or
+    /// finishing an animation, not running a build.
+    @discardableResult
+    mutating func stepped(forward: Bool, sameSlide: Bool) -> Bool {
         if sameSlide {
+            if forward, let count, let position, position >= count { return false }
             if let pos = position {
                 position = forward ? pos + 1 : max(pos - 1, 0)
             } else {
@@ -352,6 +359,7 @@ struct KeynoteBuildTracker {
             pendingBackward = !forward
             slide = nil
         }
+        return true
     }
 
     /// `count`: the slide's build clicks from the saved file, nil if not known (yet).

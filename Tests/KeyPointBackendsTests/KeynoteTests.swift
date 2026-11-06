@@ -81,9 +81,13 @@ import Testing
     @Test func buildTrackerCapsAtTheCount() {
         var t = KeynoteBuildTracker()
         t.observe(slide: 2, count: 1)
-        t.stepped(forward: true, sameSlide: true)
-        t.stepped(forward: true, sameSlide: true) // pressed again while the build was animating
+        let first = t.stepped(forward: true, sameSlide: true)
+        // Pressed again while the build was animating, or leaving the slide before Keynote reports it.
+        let again = t.stepped(forward: true, sameSlide: true)
+        #expect(first && !again)
         #expect(t.position == 1 && t.count == 1)
+        let back = t.stepped(forward: false, sameSlide: true)
+        #expect(back && t.position == 0)
         t.stepped(forward: true, sameSlide: false)
         t.observe(slide: 3, count: 2)
         #expect(t.position == 0)
@@ -425,5 +429,11 @@ struct LiveKeynoteMediaTests {
         #expect(show?.buildPosition == 1)
         #expect(media?.state == .playing)
         #expect((media?.position ?? 0) >= 1000 && (media?.position ?? 0) < 1600)
+        // Next press: every build has run, and Keynote still reports this slide during the
+        // transition. The movie keeps its timing rather than restarting.
+        await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
+        show = try await backend.poll().show
+        #expect(show?.buildPosition == 1)
+        #expect((show?.media?.position ?? 0) >= 1200)
     }
 }
