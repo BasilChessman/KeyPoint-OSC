@@ -93,3 +93,18 @@ struct SpikeKeynoteFile {
         #expect(deck.slides[3].first?.playableLength == 59078)
     }
 }
+
+/// Prints the movie timing KeyPoint reads from any saved deck: KEYPOINT_DECK=/path/deck.key scripts/test.sh --filter PrintDeck
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["KEYPOINT_DECK"] != nil))
+struct PrintDeck {
+    @Test func printDeck() throws {
+        let path = ProcessInfo.processInfo.environment["KEYPOINT_DECK"]!
+        let deck = try #require(KeynoteFile.media(deckPath: path))
+        for (i, movies) in deck.slides.enumerated() where !movies.isEmpty {
+            for m in movies {
+                print("DECK slide \(i + 1): \(m.storedName ?? "?") click \(m.start.click) +\(m.start.offset) ms, "
+                      + "trim \(m.trimStart)-\(m.trimEnd) ms, play across \(m.playAcrossSlides)")
+            }
+        }
+    }
+}

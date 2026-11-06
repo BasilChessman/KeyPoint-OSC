@@ -137,7 +137,7 @@ Trims made in Keynote (Format > Movie > Edit Movie > Trim) are applied, so the c
 - **The movie is paused, skimmed or restarted on the Mac.** KeyPoint doesn't see this and keeps counting.
 - **You step back onto a slide.** Which builds have run isn't known, so the movie shows `notready` until you leave the slide and come back forwards.
 - **The deck has changed since it was last saved.** KeyPoint reads the saved file. If the slide count differs, or the slide's movie isn't in the saved file, it falls back to starting when the slide appears and doesn't apply trims. Save before the show.
-- **The slide has more than one movie.** KeyPoint times the first movie, or the first audio clip if there's no movie.
+- **The slide has more than one movie or audio clip.** KeyPoint times each one and reports one at a time: the one that started most recently while it plays, otherwise the next one still waiting to start (as `notready`, with its full length), and once all have finished, the last one. Overlapping movies show only the newest. Without a usable saved file they all count from the slide appearing, and the first one is shown.
 - **Keynote's file format changes.** The timing comes from Keynote's undocumented file format (tested with Keynote 14.3). If a future version can't be read, KeyPoint falls back to starting when the slide appears.
 
 ### PerfectCue clicker
@@ -150,6 +150,7 @@ Things to know:
 
 - **Listen only on the Mac that runs the show.** KeyPoint assumes each press reached its own Keynote. If the base station's USB goes to a different computer, the count is wrong.
 - **Each press is matched to the show after the fact.** KeyPoint compares the slide before and after the press to tell a build step from a slide change. Pressing faster than about 5 times a second, or pressing while Keynote is busy with a transition, can be miscounted.
+- **One Companion button can do both.** A button that sends KeyPoint's Next *and* the PerfectCue module's Forward reaches KeyPoint twice: as its own next, and as a press from the bridge. KeyPoint counts a next and a press in the same direction less than a second apart as one click. That's right when only one of them actually moves Keynote. If both do, Keynote moves two steps for one count, so have each button use one or the other.
 - **Blank presses are ignored.**
 - PowerPoint doesn't use the presses: it reports media playback itself.
 

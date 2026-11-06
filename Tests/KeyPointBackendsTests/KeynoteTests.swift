@@ -147,6 +147,52 @@ import Testing
         #expect(other.plan == nil)
     }
 
+    @Test func parsesEveryMovieOnTheSlide() throws {
+        let rs = String(AS.record)
+        let all = try KeynoteMovie.parseAll("a.mov\(us)none\(rs)b.mov\(us)loop\(rs)song.m4a\(us)none")
+        #expect(all.map(\.fileName) == ["a.mov", "b.mov", "song.m4a"] && all[1].repetition == .loop)
+        #expect(try KeynoteMovie.parseAll("").isEmpty)
+    }
+
+    /// Two copies of the same clip: the n-th in Keynote's list is the n-th stored under that name.
+    @Test func sameFileTwiceKeepsEachMoviesTiming() {
+        let first = plan(click: 1), second = plan(click: 2, trim: (2000, 6500))
+        var timers = [KeynoteMediaTimer(movie: .init(fileName: "a.mov", repetition: .none), arrivedAt: Self.t0),
+                      KeynoteMediaTimer(movie: .init(fileName: "a.mov", repetition: .none), arrivedAt: Self.t0)]
+        KeynoteMediaTimer.resolvePlans(&timers, deck: KeynoteDeckMedia(slides: [[first, second]]), slide: 1, slideCount: 1)
+        #expect(timers.map(\.plan) == [first, second])
+    }
+
+    /// The countdown follows whichever movie is playing, then waits for the next one.
+    @Test func countdownFollowsEachMovie() {
+        var timers = [timer(plan(click: 1)), timer(plan(click: 2, trim: (2000, 6500)))]
+        timers[1].movie.fileName = "b.mov"
+        func now(_ t: Double, _ clicks: [Int: Date]) -> MediaInfo? {
+            KeynoteMediaTimer.current(timers, clicks: clicks, now: at(t)) { _ in 10_000 }
+        }
+        #expect(now(1, [:])?.state == .notready && now(1, [:])?.remaining == 10_000) // waiting for click 1
+        let one = [1: at(1)]
+        #expect(now(3, one)?.state == .playing && now(3, one)?.remaining == 8000)
+        // Movie 1 has ended; movie 2 waits for click 2 with its trimmed length.
+        #expect(now(12, one)?.state == .notready && now(12, one)?.remaining == 4500)
+        let two = [1: at(1), 2: at(13)]
+        #expect(now(14, two)?.state == .playing && now(14, two)?.remaining == 3500)
+        // Both finished: the last one to start, at its end.
+        #expect(now(30, two)?.state == .stopped && now(30, two)?.trimmedDuration == 4500)
+        // Movie 2 started while movie 1 still plays: the newer one is shown.
+        let overlap = [1: at(1), 2: at(4)]
+        #expect(now(5, overlap)?.remaining == 3500)
+    }
+
+    @Test func withoutTheFileTheFirstMovieIsShown() {
+        let a = timer(nil)
+        var b = timer(nil)
+        b.movie.fileName = "b.mov"
+        let m = KeynoteMediaTimer.current([a, b], clicks: [:], now: at(2)) { $0.movie.fileName == "a.mov" ? 10_000 : 3000 }
+        #expect(m?.duration == 10_000)
+        #expect(KeynoteMediaTimer.current([], clicks: [:], now: at(2)) { _ in nil } == nil)
+    }
+
     @Test func timerRestartsEachLoop() {
         for rep in [KeynoteMovie.Repetition.loop, .loopBackAndForth] {
             let m = timer(nil, repetition: rep).media(fileDuration: 10_000, clicks: [:], now: at(23))
@@ -275,11 +321,12 @@ struct LiveKeynoteMediaTests {
             lock.lock()
             defer { lock.unlock() }
             let us = String(AS.unit), rs = String(AS.record)
+            if source.contains("repeat with m in movies of c") { return ordinal == 1 ? movie : "" }
             if source.contains("set recs to {}") {
                 return ["D\(us)Deck.key\(us)\(deck)\(us)true\(us)\(skipped)", "F\(us)Deck.key", "S\(us)\(ordinal)\(us)"]
                     .joined(separator: rs)
             }
-            if source.contains("count of movies") { return ordinal == 1 ? movie : "" }
+            if source.contains("set beforeIdx to slide number") { return "\(ordinal)\(us)\(ordinal)" }
             if source.contains("return (slide number of current slide of front document) as text") { return String(ordinal) }
             return ""
         }
@@ -297,6 +344,23 @@ struct LiveKeynoteMediaTests {
         await backend.clickerPressed(forward: true, at: Date())
         let show = try await backend.poll().show
         #expect(show?.currentSlide == 2 && show?.buildPosition == 0)
+    }
+
+    /// A Companion button sending both KeyPoint's next and a PerfectCue Forward is one click.
+    @Test func nextAndClickerTogetherCountOnce() async throws {
+        let backend = self.backend
+        _ = try await backend.poll()
+        try await backend.perform(.next, options: BackendOptions())
+        await backend.clickerPressed(forward: true, at: Date())
+        #expect(try await backend.poll().show?.buildPosition == 1)
+        // Either order.
+        await backend.clickerPressed(forward: true, at: Date())
+        try await backend.perform(.next, options: BackendOptions())
+        #expect(try await backend.poll().show?.buildPosition == 2)
+        // Separate clicks are both counted.
+        try await Task.sleep(for: .seconds(1.1))
+        await backend.clickerPressed(forward: true, at: Date())
+        #expect(try await backend.poll().show?.buildPosition == 3)
     }
 
     @Test func pressStartsAnOnClickMovie() async throws {

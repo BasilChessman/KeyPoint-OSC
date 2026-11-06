@@ -29,7 +29,7 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     private var lastSlide: Int?
     /// Slide whose movie was last looked up, and the estimate for it (nil: no movie).
     private var mediaSlide: Int?
-    private var mediaTimer: KeynoteMediaTimer?
+    private var mediaTimers: [KeynoteMediaTimer] = []
     /// When KeyPoint last moved the show, so a new slide's timer starts then, not at the next poll.
     private var lastNavigation = Date.distantPast
     /// Our own next/previous on the current slide: when each click (1, 2, …) was sent, the
@@ -38,8 +38,12 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     private var clickOrdinal: Int?
     private var arrival: (ordinal: Int, at: Date)?
     /// Recent visible ordinals and when they were seen, to tell where the show was when a
-    /// clicker was pressed. Visible ordinal of the slide `mediaTimer` belongs to.
+    /// clicker was pressed. Visible ordinal of the slide `mediaTimers` belong to.
     private var ordinals: [(at: Date, ordinal: Int)] = []
+    /// The last step counted, and whether it came from KeyPoint or the clicker. A Companion
+    /// button that sends both KeyPoint's next and a PerfectCue Forward is one click, not two.
+    private var lastCounted: (forward: Bool, at: Date, clicker: Bool)?
+    static let sameClickWindow: TimeInterval = 1
     private var mediaOrdinal: Int?
 
     public init(runner: any ScriptRunning = AppleScriptRunner(), monitor: AppMonitor? = .shared) {
@@ -68,7 +72,7 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
             tracker.reset()
             lastSlide = nil
             mediaSlide = nil
-            mediaTimer = nil
+            mediaTimers = []
             clicks = [:]
             ordinals = []
             return BackendSnapshot(presentations: presentations, activePresentation: raw.front.isEmpty ? nil : raw.front)
@@ -92,19 +96,20 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
             } else {
                 polledAt
             }
-            let previous = mediaTimer
-            mediaTimer = (try? KeynoteMovie.parse(try script(KeynoteScripts.movie(document: doc.name, slide: slide))))
-                .flatMap { $0 }
-                .map { KeynoteMediaTimer(movie: $0, arrivedAt: arrived, arrivedBackward: tracker.position == nil) }
-            mediaTimer?.continueFrom(previous, clicks: clicks, now: polledAt)
+            let previous = mediaTimers
+            let movies = (try? KeynoteMovie.parseAll(try script(KeynoteScripts.movie(document: doc.name, slide: slide)))) ?? []
+            mediaTimers = movies.map { KeynoteMediaTimer(movie: $0, arrivedAt: arrived, arrivedBackward: tracker.position == nil) }
+            for i in mediaTimers.indices {
+                mediaTimers[i].continueFrom(previous.first { $0.movie.fileName == mediaTimers[i].movie.fileName },
+                                            clicks: clicks, now: polledAt)
+            }
         }
-        if var timer = mediaTimer, !timer.planResolved, let deck {
-            timer.resolvePlan(deck, slide: slide, slideCount: doc.skipped.count)
-            mediaTimer = timer
+        if let deck, mediaTimers.contains(where: { !$0.planResolved }) {
+            KeynoteMediaTimer.resolvePlans(&mediaTimers, deck: deck, slide: slide, slideCount: doc.skipped.count)
         }
-        let media = mediaTimer.map { timer in
-            timer.media(fileDuration: clips.clip(deckPath: doc.path, item: timer.movie.fileName)?.fileDuration,
-                        clicks: clicks, now: Date())
+        let now = Date()
+        let media = KeynoteMediaTimer.current(mediaTimers, clicks: clicks, now: now) { timer in
+            clips.clip(deckPath: doc.path, item: timer.movie.fileName)?.fileDuration
         }
         let show = ShowInfo(presentationName: doc.name, currentSlide: slide, state: .running, overlay: overlay,
                             buildPosition: tracker.position, notes: raw.notes, media: media)
@@ -139,8 +144,12 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
             let forward = action == .next
             let sent = Date()
             let (before, after) = try step(forward ? "show next" : "show previous", options: options)
-            tracker.stepped(forward: forward, sameSlide: before == after && before > 0)
-            noteStep(forward: forward, before: before, after: after, at: sent)
+            if isSameClick(forward: forward, at: sent, clicker: false) {
+                noteOrdinal(after, at: Date())
+            } else {
+                tracker.stepped(forward: forward, sameSlide: before == after && before > 0)
+                noteStep(forward: forward, before: before, after: after, at: sent)
+            }
             overlay = .none // any navigation key clears Keynote's black/white screen
         case .gotoFirst:
             try requireShow(KeynoteScripts.showSlide("1"))
@@ -201,6 +210,7 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     /// A PerfectCue press: the base station has sent the keystroke to Keynote. Compare the slide
     /// before the press with the slide after it to tell a build step from a slide change.
     func clickerSync(forward: Bool, at time: Date) throws {
+        if isSameClick(forward: forward, at: time, clicker: true) { return }
         // The last ordinal seen before the press (allowing for the keystroke to land after it).
         guard let before = ordinals.last(where: { $0.at <= time.addingTimeInterval(0.05) })?.ordinal, before > 0 else { return }
         // Keynote updates the current slide about 100 ms after the key.
@@ -211,10 +221,21 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
         overlay = .none // any navigation key clears Keynote's black/white screen
         noteStep(forward: forward, before: before, after: after, at: time)
         // A poll may have seen the new slide first: it arrived at the press, not at that poll.
-        if before != after, mediaOrdinal == after, var timer = mediaTimer, time < timer.arrivedAt {
-            timer.arrivedAt = time
-            mediaTimer = timer
+        if before != after, mediaOrdinal == after {
+            for i in mediaTimers.indices where time < mediaTimers[i].arrivedAt { mediaTimers[i].arrivedAt = time }
         }
+    }
+
+    /// True if a step from the other source in the same direction was just counted: the same
+    /// Companion button press arriving twice. Otherwise records this one.
+    private func isSameClick(forward: Bool, at time: Date, clicker: Bool) -> Bool {
+        if let last = lastCounted, last.forward == forward, last.clicker != clicker,
+           abs(time.timeIntervalSince(last.at)) < Self.sameClickWindow {
+            lastCounted = nil
+            return true
+        }
+        lastCounted = (forward, time, clicker)
+        return false
     }
 
     private func noteOrdinal(_ ordinal: Int, at time: Date) {
@@ -359,7 +380,7 @@ struct KeynotePoll: Equatable {
     }
 }
 
-/// The first movie (or, failing that, audio clip) on a slide, as Keynote's scripting describes it.
+/// A movie or audio clip on a slide, as Keynote's scripting describes it.
 struct KeynoteMovie: Equatable {
     enum Repetition: String {
         case none
@@ -375,6 +396,11 @@ struct KeynoteMovie: Equatable {
         let f = text.split(separator: AS.unit, omittingEmptySubsequences: false).map(String.init)
         guard let name = f.first, !name.isEmpty else { return nil }
         return KeynoteMovie(fileName: name, repetition: f.count > 1 ? Repetition(rawValue: f[1]) ?? .none : .none)
+    }
+
+    /// One record per movie, then per audio clip, in slide order.
+    static func parseAll(_ text: String) throws -> [KeynoteMovie] {
+        try text.split(separator: AS.record).compactMap { try parse(String($0)) }
     }
 }
 
@@ -400,14 +426,55 @@ struct KeynoteMediaTimer: Equatable {
     var continuedStart: Date?
 
     /// Looks the movie up in the parsed file. Only used if the file matches what Keynote shows:
-    /// same slide count, and the slide has a movie stored under this file name.
-    mutating func resolvePlan(_ deck: KeynoteDeckMedia?, slide: Int, slideCount: Int) {
+    /// same slide count, and the slide has a movie stored under this file name. `occurrence`
+    /// picks among movies using the same file (0 = the first on the slide).
+    mutating func resolvePlan(_ deck: KeynoteDeckMedia?, slide: Int, slideCount: Int, occurrence: Int = 0) {
         planResolved = true
         guard let deck, deck.slides.count == slideCount, slide >= 1, slide <= deck.slides.count else { return }
-        let candidates = deck.slides[slide - 1]
-        let names = candidates.compactMap(\.storedName)
-        guard let name = KeynoteMedia.match(movie.fileName, in: names) else { return }
-        plan = candidates.first { $0.storedName == name }
+        let candidates = deck.slides[slide - 1].filter { item in
+            item.storedName.map { KeynoteMedia.match(movie.fileName, in: [$0]) != nil } ?? false
+        }
+        plan = occurrence < candidates.count ? candidates[occurrence] : nil
+    }
+
+    /// Resolves every movie on a slide. Keynote's scripting and the file list a slide's movies
+    /// in the same order, so the n-th movie with a file name is the n-th one stored under it.
+    static func resolvePlans(_ timers: inout [KeynoteMediaTimer], deck: KeynoteDeckMedia?, slide: Int, slideCount: Int) {
+        var seen: [String: Int] = [:]
+        for i in timers.indices {
+            let name = timers[i].movie.fileName
+            let occurrence = seen[name, default: 0]
+            seen[name] = occurrence + 1
+            if !timers[i].planResolved, timers[i].continuedStart == nil {
+                timers[i].resolvePlan(deck, slide: slide, slideCount: slideCount, occurrence: occurrence)
+            }
+        }
+    }
+
+    /// The media to report for a slide with several movies: the one most recently started
+    /// while it plays; otherwise the next one still to start; otherwise the last one to start.
+    /// Without the saved file, all start with the slide, so the first one is reported.
+    static func current(_ timers: [KeynoteMediaTimer], clicks: [Int: Date], now: Date,
+                        fileDuration: (KeynoteMediaTimer) -> Int?) -> MediaInfo? {
+        guard !timers.isEmpty else { return nil }
+        let items = timers.enumerated().map { i, t in
+            (index: i, info: t.media(fileDuration: fileDuration(t), clicks: clicks, now: now), started: t.startedAt(clicks: clicks),
+             start: t.plan?.start)
+        }
+        let begun = items.filter { $0.started.map { $0 <= now } ?? false && $0.info.state != .notready }
+        func latest(_ list: [(index: Int, info: MediaInfo, started: Date?, start: KeynoteMovieStart?)]) -> MediaInfo? {
+            // Latest start; on a tie, the first on the slide.
+            list.max { ($0.started!, -$0.index) < ($1.started!, -$1.index) }?.info
+        }
+        if let playing = latest(begun.filter { $0.info.state == .playing }) { return playing }
+        let waiting = items.filter { $0.info.state == .notready }
+        if let next = waiting.min(by: { a, b in
+            let ka = (a.start?.click ?? 0, a.start?.offset ?? 0, a.index), kb = (b.start?.click ?? 0, b.start?.offset ?? 0, b.index)
+            return ka < kb
+        }) {
+            return next.info
+        }
+        return latest(begun) ?? items[0].info
     }
 
     /// Keeps the previous slide's timing if the same movie plays across into this slide.
@@ -494,23 +561,22 @@ enum KeynoteScripts {
         return (slide number of current slide of front document) as text
         """
 
-    /// The first movie, else the first audio clip, on real slide `slide`: `fileName<US>repetition`, or "".
+    /// Every movie, then every audio clip, on real slide `slide`: `fileName<US>repetition` records.
     static func movie(document name: String, slide: Int) -> String {
         """
         set c to slide \(slide) of document \(AS.literal(name))
+        set recs to {}
         try
-            if (count of movies of c) > 0 then
-                set m to movie 1 of c
-                return (file name of m) & US & ((repetition method of m) as text)
-            end if
+            repeat with m in movies of c
+                set end of recs to (file name of m) & US & ((repetition method of m) as text)
+            end repeat
         end try
         try
-            if (count of audio clips of c) > 0 then
-                set m to audio clip 1 of c
-                return (file name of m) & US & ((repetition method of m) as text)
-            end if
+            repeat with m in audio clips of c
+                set end of recs to (file name of m) & US & ((repetition method of m) as text)
+            end repeat
         end try
-        return ""
+        return my joinList(recs, RS)
         """
     }
 
