@@ -3,6 +3,10 @@
 #
 #   scripts/release.sh            uses the version in Resources/Info.plist
 #   scripts/release.sh --dry-run  builds and packages into build/release, no upload
+#   scripts/release.sh --module-only
+#                                 publishes only the Companion module (bumped package.json
+#                                 version) and swaps it into the current app release, whose
+#                                 install guide points there
 #
 # The app is signed with the "KeyPoint OSC Development" identity (not notarized), so
 # users approve it once per version under Privacy & Security > Open Anyway; see
@@ -10,7 +14,9 @@
 set -euo pipefail
 cd "${0:A:h}/.."
 dry_run=0
+module_only=0
 [[ ${1:-} == --dry-run ]] && dry_run=1
+[[ ${1:-} == --module-only ]] && module_only=1
 
 identity="KeyPoint OSC Development"
 security find-identity -p codesigning | grep -q "\"$identity\"" || {
@@ -22,6 +28,35 @@ version=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resourc
 tag="v$version"
 module_dir=companion-module
 module_version=$(node -p "require('./$module_dir/package.json').version")
+
+if (( module_only )); then
+  module_tag="v$module_version"
+  module_repo=$(git -C $module_dir remote get-url origin)
+  [[ -z $(git -C $module_dir status --porcelain) ]] || { echo "Commit or stash changes in $module_dir first." >&2; exit 1; }
+  gh release view "$module_tag" -R "$module_repo" >/dev/null 2>&1 && { echo "Module $module_tag already released. Bump version in $module_dir/package.json." >&2; exit 1; }
+  gh release view "$tag" >/dev/null 2>&1 || { echo "App release $tag doesn't exist yet: run a full release." >&2; exit 1; }
+  echo "== Companion module $module_version"
+  (cd $module_dir && npm test >/dev/null && rm -f -- *.tgz(N) && npm run package >/dev/null)
+  module_tgz=$(ls $module_dir/*.tgz)
+  name=$(basename $module_tgz)
+  git -C $module_dir tag -a "$module_tag" -m "Companion module $module_version"
+  git -C $module_dir push origin "$module_tag"
+  (cd $module_dir && gh release create "$module_tag" "$name" --title "KeyPoint OSC module $module_version" \
+    --notes "Companion module for KeyPoint OSC $version. In Companion: Modules > Import module package, then choose the .tgz.")
+  echo "== Updating app release $tag with $name"
+  for old in $(gh release view "$tag" --json assets --jq '.assets[].name' | grep '^rustedroof-keypoint-osc-.*\.tgz$'); do
+    [[ $old == $name ]] || gh release delete-asset "$tag" "$old" -y
+  done
+  gh release upload "$tag" "$module_tgz" --clobber
+  sum=$(cd $module_dir && shasum -a 256 $name)
+  notes=$(mktemp)
+  gh release view "$tag" --json body --jq .body \
+    | NAME=$name SUM=$sum perl -pe 's/rustedroof-keypoint-osc-[0-9.]+\.tgz/$ENV{NAME}/g; s/^[0-9a-f]{64}  \Q$ENV{NAME}\E$/$ENV{SUM}/' > $notes
+  gh release edit "$tag" --notes-file $notes
+  rm $notes
+  echo "Done: $(gh release view "$module_tag" -R "$module_repo" --json url --jq .url)"
+  exit 0
+fi
 
 if (( ! dry_run )); then
   [[ -z $(git status --porcelain) ]] || { echo "Commit or stash changes first." >&2; exit 1; }

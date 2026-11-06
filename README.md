@@ -97,7 +97,7 @@ Use these as `$(keypoint:name)`, with your connection's label in place of `keypo
 | `notes` | Presenter notes of the current slide |
 | `section_index` | Current section number (PowerPoint) |
 | `section_name` | Current section name (PowerPoint) |
-| `section_slides_remaining` | Visible slides left in the section (PowerPoint) |
+| `section_slides_remaining` | Visible slides left in the section. Keynote has no sections, so there it's the same as `slides_remaining` |
 | `overlay` | Black/white screen (`none`, `black`, `white`) |
 | `media_state` | `playing`, `paused`, `stopped`, `notready` (Keynote: estimated) |
 | `media_position`, `media_position_display` | Media position in ms, and as m:ss (Keynote: estimated) |
