@@ -189,7 +189,7 @@ KeyPoint OSC listens for OSC over UDP and drives the presentation apps through A
 ## Requirements
 
 - macOS 14 or later
-- PowerPoint for Mac (tested with 16.106) and/or Keynote (tested with 14.3, 14.5 and 15.4; Keynote 15 "Creator Studio" is a separate app from 14 and earlier, and KeyPoint works with either)
+- PowerPoint for Mac (tested with 16.106) and/or Keynote (tested with 14.3 and 15.4; every Keynote 15.x is a separate app from 14 and earlier, and KeyPoint works with either)
 
 ## Setup
 
