@@ -107,6 +107,19 @@ import Testing
         #expect(again.contains("/oscpoint/slideshow/notes-utf8"))
     }
 
+    @Test func presentationValuesAreResentAfterNoActivePresentation() {
+        // A poll that briefly sees no front document sends the blank v2/presentation, which
+        // clients take as "nothing open" and clear name and slide count; they must come back.
+        let pub = FeedbackPublisher(prefix: Router.keypointPrefix)
+        _ = pub.update(snapshot(slide: 7), context: allCaps)
+        _ = pub.update(BackendSnapshot(presentations: [deck]), context: allCaps)
+        let v = values(pub.update(snapshot(slide: 7), context: allCaps))
+        #expect(v["/keypoint/presentation/name"] == [.string("Deck.pptx"), .blob(Data("Deck.pptx".utf8))])
+        #expect(v["/keypoint/presentation/slides/count"] == [.int(6)])
+        #expect(v["/keypoint/presentation/slides/count/visible"] == [.int(5)])
+        #expect(v["/keypoint/slideshow/currentslide"] == [.int(7)])
+    }
+
     @Test func utf8TruncationKeepsCharactersWhole() {
         let data = Data("aé".utf8) // 61 C3 A9
         #expect(FeedbackPublisher.truncateUTF8(data, to: 2) == Data("a".utf8))

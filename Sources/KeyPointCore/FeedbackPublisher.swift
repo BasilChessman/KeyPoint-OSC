@@ -63,7 +63,12 @@ public final class FeedbackPublisher {
             lastSent = lastSent.filter { !$0.key.hasPrefix(prefix + "/slideshow/media/") }
         }
         previous = snapshot
-        let changed = stateMessages(snapshot, context: context).filter { msg in
+        let messages = stateMessages(snapshot, context: context)
+        // Forget addresses this update doesn't send (e.g. presentation/name while no presentation
+        // is active), so they're resent when they come back: clients clear them on the blank state.
+        let current = Set(messages.map(\.address))
+        lastSent = lastSent.filter { current.contains($0.key) }
+        let changed = messages.filter { msg in
             let data = OSCEncoder.encode(msg)
             guard lastSent[msg.address] != data else { return false }
             lastSent[msg.address] = data
