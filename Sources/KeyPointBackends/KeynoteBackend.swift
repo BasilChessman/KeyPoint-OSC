@@ -6,7 +6,18 @@ import KeyPointCore
 /// Behavior notes and workarounds are documented in docs/capabilities.md.
 public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     public let kind = BackendKind.keynote
-    public let bundleIdentifier = "com.apple.iWork.Keynote"
+    /// Keynote 15 ("Keynote Creator Studio") is a separate app with a new bundle ID; 14 and
+    /// earlier use the iWork one. Both have the same scripting dictionary and can be installed
+    /// side by side. Newest first.
+    public static let bundleIdentifiers = ["com.apple.Keynote", "com.apple.iWork.Keynote"]
+    /// The Keynote being controlled: the running one (the one frontmost most recently if both
+    /// are running), else the newest.
+    public var bundleIdentifier: String {
+        guard let monitor else { return Self.bundleIdentifiers[0] }
+        let running = Self.bundleIdentifiers.filter { monitor.isRunning($0) }
+        return running.max { (monitor.lastActivated($0) ?? .distantPast) < (monitor.lastActivated($1) ?? .distantPast) }
+            ?? running.first ?? Self.bundleIdentifiers[0]
+    }
     /// No sections, media control or laser pointer: Keynote doesn't expose them. Build counts
     /// come from the saved file. Black/white is a key press, so its state is what we last set,
     /// not read back.
@@ -54,7 +65,11 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
         self.monitor = monitor
     }
 
-    public func isAppRunning() -> Bool { monitor?.isRunning(bundleIdentifier) ?? true }
+    public func isAppRunning() -> Bool {
+        guard let monitor else { return true }
+        return Self.bundleIdentifiers.contains { monitor.isRunning($0) }
+    }
+
     public func lastActivated() -> Date? { monitor?.lastActivated(bundleIdentifier) }
 
     // MARK: Polling
@@ -314,8 +329,9 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
     }
 
     private func script(_ body: String) throws -> String {
-        guard isAppRunning() else { throw BackendError.appNotRunning }
-        let result = try runner.run(AS.wrap(body, bundleID: bundleIdentifier))
+        let app = bundleIdentifier
+        guard monitor?.isRunning(app) ?? true else { throw BackendError.appNotRunning }
+        let result = try runner.run(AS.wrap(body, bundleID: app))
         if result == "NOTRUNNING" { throw BackendError.appNotRunning }
         return result
     }

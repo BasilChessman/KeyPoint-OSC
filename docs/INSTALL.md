@@ -15,7 +15,7 @@ You only do steps 3–4 once per version. A slides icon appears in the menu bar;
 
 ## 2. Allow permissions
 
-- **Automation:** the first time KeyPoint controls PowerPoint or Keynote, macOS asks whether it may. Click **OK** (or **Allow**).
+- **Automation:** the first time KeyPoint controls PowerPoint or Keynote, macOS asks whether it may. Click **OK** (or **Allow**). Keynote 15 ("Keynote Creator Studio") counts as a new app, so it asks again even if older Keynote was allowed.
 - **Accessibility** (recommended): click the menu-bar icon, and under **Permissions** click **Allow…** next to Accessibility. Then turn on **KeyPoint OSC** in the list that opens. This enables smooth go-to-slide and presentation switching in PowerPoint, and black/white screen in Keynote.
 - **Incoming connections:** when macOS asks whether KeyPoint OSC may accept incoming network connections, click **Allow**. Companion on another computer needs this.
 

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import KeyPointBackends
@@ -293,8 +294,14 @@ struct SpikeKeynoteMedia {
     }
 }
 
+/// Installed Keynotes (14 and earlier, and 15 "Creator Studio").
+let installedKeynotes = KeynoteBackend.bundleIdentifiers.filter {
+    NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil
+}
+
+/// Compiles every script against each installed Keynote.
 @MainActor
-@Suite(.serialized, .enabled(if: FileManager.default.fileExists(atPath: "/Applications/Keynote.app")))
+@Suite(.serialized, .enabled(if: !installedKeynotes.isEmpty))
 struct KeynoteScriptCompileTests {
     nonisolated static let scripts: [(String, String)] = [
         ("poll", KeynoteScripts.poll), ("isPlaying", KeynoteScripts.isPlaying), ("selection", KeynoteScripts.selection),
@@ -309,10 +316,12 @@ struct KeynoteScriptCompileTests {
     @Test(arguments: scripts.map(\.0))
     func compiles(_ name: String) throws {
         let body = Self.scripts.first { $0.0 == name }!.1
-        let script = try #require(NSAppleScript(source: AS.wrap(body, bundleID: "com.apple.iWork.Keynote")))
-        var error: NSDictionary?
-        let ok = script.compileAndReturnError(&error)
-        #expect(ok, "\(name): \(error?[NSAppleScript.errorMessage] ?? "") \(error?[NSAppleScript.errorRange] ?? "")")
+        for app in installedKeynotes {
+            let script = try #require(NSAppleScript(source: AS.wrap(body, bundleID: app)))
+            var error: NSDictionary?
+            let ok = script.compileAndReturnError(&error)
+            #expect(ok, "\(name) (\(app)): \(error?[NSAppleScript.errorMessage] ?? "") \(error?[NSAppleScript.errorRange] ?? "")")
+        }
     }
 }
 

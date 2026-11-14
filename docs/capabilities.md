@@ -45,7 +45,7 @@ In-process NSAppleScript or ScriptingBridge from the Swift app should be faster 
 4. **Build position is ours to track** in both backends (count our next/previous calls, reset when the slide changes). Mark it "estimated" if someone clicks on the Mac.
 5. **UI-scripting features** (Keynote black/white, PowerPoint go-to via menu) go behind one "Accessibility features" opt-in. Never send keystrokes unless a show window is confirmed to exist. During this spike, keystrokes sent while no show was running went to the editor; they did no harm this time, but the risk is real.
 6. **Unsupported** (reported in the capability list so Companion can grey them out): Keynote sections and media (Keynote build counts and media time came later, from the saved file). Laser pointer on both. PowerPoint media duration (unless added from the file).
-7. **Permissions seen**: Automation prompt per target app on first use. Accessibility for UI features. Screen Recording not needed.
+7. **Permissions seen**: Automation prompt per target app on first use (Keynote 15 is its own target app, see below). Accessibility for UI features. Screen Recording not needed.
 8. **Sandboxing**: both apps refused some saves to a scripted location (Keynote's in-place save failed with "could not be saved"; a first PowerPoint save silently didn't write). The helper app shouldn't depend on the presentation apps writing files.
 
 ## Decisions (from the user, 2026-10-25)
@@ -96,3 +96,7 @@ These came up during implementation and are handled in the backends:
   - A deck with sections repeats every slide ID in `p14:sectionLst`, so the slide list must be read from `/p:presentation/p:sldIdLst` only (a `//sldIdLst` search found every slide twice).
   - Sandboxed PowerPoint can't save into the session's temp folder by script (`save` silently does nothing); save into `~/Library/Containers/com.microsoft.Powerpoint/Data/Documents`.
 - [x] Keynote indented (grouped) slides (2026-11-06). Keynote has no named sections; the navigator can indent slides under the one above (Tab with the navigator focused; Slide > Collapse/Expand become available). Indented slides stay in the Show's flat slide list (type 2, field 3 → 2), so slide counts and per-slide reads are unaffected. The level is in the SlideNode (type 4) field 21: 1 top level, 2 indented one step. Not used yet; it could give Keynote rough, unnamed groups. The scripting dictionary has no slide level or parent.
+
+## Keynote 15 (Creator Studio)
+
+Checked 2026-11-14 with Keynote 15.4. It installs as a separate app, "Keynote Creator Studio.app", with a new bundle ID, `com.apple.Keynote` (14 and earlier: `com.apple.iWork.Keynote`), and can sit beside an older Keynote. Its scripting dictionary is the same as 14.5's apart from one new transition (radial wipe), and its saved files parse as before. KeyPoint drives whichever is running, the one frontmost most recently if both are. Automation is granted per app, so 15 asks again.

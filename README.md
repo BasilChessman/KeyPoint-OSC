@@ -148,7 +148,7 @@ Trims made in Keynote (Format > Movie > Edit Movie > Trim) are applied, so the c
 - **You step back onto a slide.** Which builds have run isn't known, so the movie shows `notready` until you leave the slide and come back forwards.
 - **The deck has changed since it was last saved.** KeyPoint reads the saved file. If the slide count differs, or the slide's movie isn't in the saved file, it falls back to starting when the slide appears and doesn't apply trims. Save before the show.
 - **The slide has more than one movie or audio clip.** KeyPoint times each one and reports one at a time: the one that started most recently while it plays, otherwise the next one still waiting to start (as `notready`, with its full length), and once all have finished, the last one. Overlapping movies show only the newest. Without a usable saved file they all count from the slide appearing, and the first one is shown.
-- **Keynote's file format changes.** The timing comes from Keynote's undocumented file format (tested with Keynote 14.3). If a future version can't be read, KeyPoint falls back to starting when the slide appears.
+- **Keynote's file format changes.** The timing comes from Keynote's undocumented file format (tested with Keynote 14.3 and 15.4). If a future version can't be read, KeyPoint falls back to starting when the slide appears.
 
 ### Clicker on this Mac
 
@@ -189,12 +189,12 @@ KeyPoint OSC listens for OSC over UDP and drives the presentation apps through A
 ## Requirements
 
 - macOS 14 or later
-- PowerPoint for Mac (tested with 16.106) and/or Keynote (tested with 14.3)
+- PowerPoint for Mac (tested with 16.106) and/or Keynote (tested with 14.3, 14.5 and 15.4; Keynote 15 "Creator Studio" is a separate app from 14 and earlier, and KeyPoint works with either)
 
 ## Setup
 
 1. Build the app (see below) and open `build/KeyPoint OSC.app`. A slides icon appears in the menu bar.
-2. The first time it talks to PowerPoint or Keynote, macOS asks whether KeyPoint OSC may control that app. Click **OK**. To change this later, use System Settings > Privacy & Security > Automation.
+2. The first time it talks to PowerPoint or Keynote, macOS asks whether KeyPoint OSC may control that app. Click **OK**. Keynote 15 and Keynote 14 are separate apps to macOS, so each asks once. To change this later, use System Settings > Privacy & Security > Automation.
 3. Optional but recommended: in the menu, under **Permissions**, click **Allow…** next to Accessibility and turn on KeyPoint OSC. This enables:
    - PowerPoint: go to slide N with the whole deck still reachable afterwards, and switching between open presentations.
    - Keynote: black and white screen.
