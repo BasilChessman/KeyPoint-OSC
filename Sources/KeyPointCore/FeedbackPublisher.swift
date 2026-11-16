@@ -116,7 +116,7 @@ public final class FeedbackPublisher {
         if extended && caps.contains(.blackWhite) {
             add("slideshow/overlay", .string(show.overlay.rawValue))
         }
-        add("slideshow/currentslide", .int(Int32(clamping: show.currentSlide)))
+        add("slideshow/currentslide", .int(Int32(clamping: show.displaySlide)))
         add("slideshow/slidesremaining", .int(Int32(clamping: pres.visibleSlides(after: show.currentSlide, through: pres.slideCount))))
 
         if let count = show.buildCount, caps.contains(.buildCount) {
@@ -187,15 +187,15 @@ public final class FeedbackPublisher {
 
         switch (old.show, new.show) {
         case (nil, let show?):
-            out.append(event("slideshow_begin", nameArgs(show.presentationName) + [.int(Int32(clamping: show.currentSlide))]))
+            out.append(event("slideshow_begin", nameArgs(show.presentationName) + [.int(Int32(clamping: show.displaySlide))]))
         case (let show?, nil):
             out.append(event("slideshow_end", nameArgs(show.presentationName)))
         case (let a?, let b?) where a.presentationName != b.presentationName:
             out.append(event("slideshow_end", nameArgs(a.presentationName)))
-            out.append(event("slideshow_begin", nameArgs(b.presentationName) + [.int(Int32(clamping: b.currentSlide))]))
+            out.append(event("slideshow_begin", nameArgs(b.presentationName) + [.int(Int32(clamping: b.displaySlide))]))
         case (let a?, let b?):
             let clickArgs: [OSCArgument] = [
-                .int(Int32(clamping: b.currentSlide)),
+                .int(Int32(clamping: b.displaySlide)),
                 .int(Int32(clamping: b.buildPosition ?? 0)),
                 .int(Int32(clamping: b.buildCount ?? 0)),
             ]

@@ -17,11 +17,11 @@ Legend: ✅ supported · ⚠️ supported with a caveat · ❌ not supported (ig
 | Address | PowerPoint | Keynote |
 |---|---|---|
 | `next`, `previous` | ✅ steps builds; works in the background | ⚠️ Keynote is brought to the front if it isn't already (setting "Allow bringing the app to the front") |
-| `goto/slide [n]` | ⚠️ restarts the show at slide n. With Accessibility: via *Play from Current Slide*, so the whole deck stays reachable. Without it: the show runs from n to the end. The screen flickers briefly. | ✅ |
+| `goto/slide [n]` | ⚠️ restarts the show at slide n. With Accessibility: via *Play from Current Slide*, so the whole deck stays reachable. Without it: the show runs from n to the end. The screen flickers briefly. | ✅ n is the number Keynote shows, which leaves out hidden slides |
 | `goto/slide/first`, `goto/slide/last` | ✅ | ✅ |
 | `goto/section [name]` | ⚠️ as `goto/slide` | ❌ no sections |
-| `slide/hide [n]`, `slide/unhide [n]` | ✅ | ✅ |
-| `slideshow/start [n?]` | ✅ (n: as `goto/slide`) | ✅ |
+| `slide/hide [n]`, `slide/unhide [n]` | ✅ | ✅ n is the slide's position in the deck, counting hidden slides (they have no Keynote number) |
+| `slideshow/start [n?]` | ✅ (n: as `goto/slide`) | ✅ (n: as `goto/slide`) |
 | `slideshow/start/current` | ✅ | ✅ |
 | `slideshow/start/section [name]` | ✅ | ❌ |
 | `slideshow/end` | ✅ | ✅ |
@@ -50,7 +50,7 @@ Sent only when a value changes. `feedbacks/refresh` (or a new controller connect
 | `v2/files/enabled`, `v2/files/activefolder[/fullpath]`, `v2/files` (after `files/list`) | ✅ | ✅ |
 | `presentation/name`, `presentation/slides/count[/visible]` | ✅ | ✅ |
 | `slideshow/state` (`edit`, `running`, `paused`) | ✅ | ✅ (never `paused`) |
-| `slideshow/currentslide`, `slideshow/slidesremaining` | ✅ | ✅ |
+| `slideshow/currentslide`, `slideshow/slidesremaining` | ✅ | ✅ the slide number is the one Keynote shows, which leaves out hidden slides (also in the `slideshow_begin` and `slideshow_next_*` events) |
 | `slideshow/builds/count`, `remaining` | ✅ count = clicks, from the saved file (effects set to With/After Previous don't count); if the file doesn't match the open slide, every effect counts | ✅ count = On Click build steps, from the saved file; left out while the deck has unsaved changes |
 | `slideshow/builds/position` | ⚠️ counted from KeyPoint's own next/previous; clicks made directly on the Mac aren't seen | ⚠️ same, plus clicker keys and PerfectCue presses when those are on; unknown after stepping back onto a slide only if the count isn't known |
 | `slideshow/notes` (ASCII, CR line breaks), `slideshow/notes-utf8` (blob) | ✅ | ✅ |

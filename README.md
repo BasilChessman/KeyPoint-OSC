@@ -89,7 +89,7 @@ Use these as `$(keypoint:name)`, with your connection's label in place of `keypo
 | `slide_count` | Number of slides |
 | `slide_count_visible` | Number of slides, not counting hidden ones |
 | `show_state` | `edit`, `running` or `paused` |
-| `current_slide` | Current slide number |
+| `current_slide` | Current slide number, as the app shows it (Keynote doesn't number hidden slides, so after one it's one less than the slide's position) |
 | `slides_remaining` | Visible slides after the current one |
 | `build_position` | Builds shown on the current slide |
 | `build_count` | Clicks the current slide's builds take |

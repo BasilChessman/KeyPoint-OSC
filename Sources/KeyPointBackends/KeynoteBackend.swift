@@ -134,7 +134,10 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
         let media = KeynoteMediaTimer.current(mediaTimers, clicks: clicks, now: now) { timer in
             clips.clip(deckPath: doc.path, item: timer.movie.fileName)?.fileDuration
         }
-        let show = ShowInfo(presentationName: doc.name, currentSlide: slide, state: .running, overlay: overlay,
+        // Feedback reports the number Keynote shows: the position among visible slides.
+        let shown = raw.visibleOrdinal > 0 ? raw.visibleOrdinal : doc.skipped.prefix(slide).filter { !$0 }.count
+        let show = ShowInfo(presentationName: doc.name, currentSlide: slide, displaySlide: max(shown, 1),
+                            state: .running, overlay: overlay,
                             buildPosition: tracker.position, buildCount: tracker.count, notes: raw.notes, media: media)
         return BackendSnapshot(presentations: presentations, activePresentation: doc.name, show: show)
     }
@@ -179,16 +182,17 @@ public final class KeynoteBackend: SlideBackend, @unchecked Sendable {
         case .gotoLast:
             try requireShow(KeynoteScripts.showSlide("(count of slides of d)"))
         case .gotoSlide(let n):
+            // `n` is the number Keynote shows, which counts visible slides only.
             if try script(KeynoteScripts.isPlaying) == "true" {
-                try requireShow(KeynoteScripts.showSlide(String(n)))
+                try requireShow(KeynoteScripts.showSlide(String(n), visible: true))
             } else {
-                _ = try script(KeynoteScripts.selectSlide(n))
+                _ = try script(KeynoteScripts.selectSlide(n, visible: true))
             }
         case .hideSlide(let n), .unhideSlide(let n):
             let hide = if case .hideSlide = action { true } else { false }
             _ = try script(KeynoteScripts.setSkipped(slide: n, skipped: hide))
         case .startShow(let from):
-            _ = try script(KeynoteScripts.start(from: from.map(String.init) ?? "1"))
+            _ = try script(KeynoteScripts.start(from: from.map(String.init) ?? "1", visible: from != nil))
             tracker.reset()
             mediaSlide = nil // a restart replays the movie
         case .startFromCurrent:
@@ -666,12 +670,33 @@ enum KeynoteScripts {
         """
     }
 
-    /// `n` is an AppleScript expression evaluated with `d` = front document.
-    static func showSlide(_ n: String) -> String {
+    /// With `visible`, turns slide number `n` as Keynote shows it (counting visible slides only)
+    /// into the real index: past the last visible slide is the last one. Needs `d` and `n` set.
+    static func mapVisible(_ visible: Bool) -> String {
+        guard visible else { return "" }
+        return """
+            set sk to skipped of every slide of d
+            set seen to 0
+            set lastVisible to 0
+            repeat with i from 1 to count of sk
+                if not (item i of sk) then
+                    set seen to seen + 1
+                    set lastVisible to i
+                    if seen >= n then exit repeat
+                end if
+            end repeat
+            if lastVisible > 0 then set n to lastVisible
+            """
+    }
+
+    /// `n` is an AppleScript expression evaluated with `d` = front document: the real index, or
+    /// with `visible` the number Keynote shows.
+    static func showSlide(_ n: String, visible: Bool = false) -> String {
         """
         if not playing then return "NOSHOW"
         set d to front document
         set n to \(n)
+        \(mapVisible(visible))
         if n < 1 then set n to 1
         if n > (count of slides of d) then set n to count of slides of d
         show slide n of d
@@ -679,10 +704,11 @@ enum KeynoteScripts {
         """
     }
 
-    static func selectSlide(_ n: Int) -> String {
+    static func selectSlide(_ n: Int, visible: Bool = false) -> String {
         """
         set d to front document
         set n to \(n)
+        \(mapVisible(visible))
         if n < 1 then set n to 1
         if n > (count of slides of d) then set n to count of slides of d
         set current slide of d to slide n of d
@@ -697,14 +723,16 @@ enum KeynoteScripts {
         """
     }
 
-    /// `from` is an AppleScript expression for the real slide index, with `d` = front document.
-    static func start(from: String) -> String {
+    /// `from` is an AppleScript expression for the real slide index, with `d` = front document,
+    /// or with `visible` for the number Keynote shows.
+    static func start(from: String, visible: Bool = false) -> String {
         """
         set d to front document
         set n to 1
         try
             set n to \(from)
         end try
+        \(mapVisible(visible))
         if n < 1 then set n to 1
         if n > (count of slides of d) then set n to count of slides of d
         start d from slide n of d

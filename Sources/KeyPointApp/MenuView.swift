@@ -140,7 +140,7 @@ private struct StatusHeader: View {
             }
             if let show = engine.snapshot.show {
                 let count = engine.snapshot.active?.slideCount ?? 0
-                Label("\(show.presentationName): slide \(show.currentSlide) of \(count)\(stateSuffix(show))",
+                Label("\(show.presentationName): slide \(show.displaySlide) of \(count)\(stateSuffix(show))",
                       systemImage: "play.rectangle.fill")
                     .font(.callout)
             } else if let name = engine.snapshot.activePresentation {

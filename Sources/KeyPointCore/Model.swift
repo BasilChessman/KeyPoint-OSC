@@ -138,6 +138,9 @@ public struct ShowInfo: Equatable, Sendable {
     public var presentationName: String
     /// Real 1-based slide index.
     public var currentSlide: Int
+    /// The slide number the app itself shows, which is what feedback reports. PowerPoint: the
+    /// real index. Keynote: the position among visible slides (hidden slides have no number).
+    public var displaySlide: Int
     public var state: ShowState
     public var overlay: ScreenOverlay
     public var buildPosition: Int?
@@ -145,10 +148,12 @@ public struct ShowInfo: Equatable, Sendable {
     public var notes: String?
     public var media: MediaInfo?
 
-    public init(presentationName: String, currentSlide: Int, state: ShowState = .running, overlay: ScreenOverlay = .none,
-                buildPosition: Int? = nil, buildCount: Int? = nil, notes: String? = nil, media: MediaInfo? = nil) {
+    public init(presentationName: String, currentSlide: Int, displaySlide: Int? = nil, state: ShowState = .running,
+                overlay: ScreenOverlay = .none, buildPosition: Int? = nil, buildCount: Int? = nil, notes: String? = nil,
+                media: MediaInfo? = nil) {
         self.presentationName = presentationName
         self.currentSlide = currentSlide
+        self.displaySlide = displaySlide ?? currentSlide
         self.state = state
         self.overlay = overlay
         self.buildPosition = buildPosition

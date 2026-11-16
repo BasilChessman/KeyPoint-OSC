@@ -36,6 +36,20 @@ import Testing
         #expect(v["/oscpoint/slideshow/notes-utf8"] == [.blob(Data("Line 1\rLine 2 ✓".utf8))])
     }
 
+    /// Keynote numbers visible slides only: currentslide and slide events use that number,
+    /// while slides remaining still counts from the real slide.
+    @Test func currentSlideIsTheNumberTheAppShows() {
+        var snap = snapshot(slide: 4)
+        snap.show?.displaySlide = 3
+        let v = values(FeedbackPublisher().stateMessages(snap, context: allCaps))
+        #expect(v["/oscpoint/slideshow/currentslide"] == [.int(3)])
+        #expect(v["/oscpoint/slideshow/slidesremaining"] == [.int(2)])
+        var next = snapshot(slide: 5)
+        next.show?.displaySlide = 4
+        let events = FeedbackPublisher().events(from: snap, to: next)
+        #expect(events.contains { $0.arguments == [.string("slideshow_next_slide"), .int(4), .int(0), .int(3)] })
+    }
+
     @Test func presentationJSONMatchesOSCPointShape() throws {
         let v = values(FeedbackPublisher().stateMessages(snapshot(slide: 1), context: allCaps))
         guard case .string(let ascii) = v["/oscpoint/v2/presentation"]?[0],

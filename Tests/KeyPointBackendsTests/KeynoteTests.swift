@@ -308,6 +308,8 @@ struct KeynoteScriptCompileTests {
 ("step", KeynoteScripts.step("show next")),
         ("stepActivate", KeynoteScripts.step("show previous", activateFirst: true)),
         ("showSlide", KeynoteScripts.showSlide("(count of slides of d)")), ("selectSlide", KeynoteScripts.selectSlide(2)),
+        ("showSlideVisible", KeynoteScripts.showSlide("4", visible: true)), ("selectSlideVisible", KeynoteScripts.selectSlide(2, visible: true)),
+        ("startVisible", KeynoteScripts.start(from: "3", visible: true)),
         ("setSkipped", KeynoteScripts.setSkipped(slide: 2, skipped: true)), ("start", KeynoteScripts.start(from: "3")),
         ("stop", KeynoteScripts.stop), ("movie", KeynoteScripts.movie(document: "A \"b\".key", slide: 4)), ("currentOrdinal", KeynoteScripts.currentOrdinal), ("raise", KeynoteScripts.raise("A \"b\".key")), ("open", KeynoteScripts.open("/tmp/a.key")),
         ("closeAbort", KeynoteScripts.close(name: nil, mode: .abort)), ("closeSave", KeynoteScripts.close(name: "a.key", mode: .save)),
@@ -395,6 +397,14 @@ struct LiveKeynoteMediaTests {
         await backend.clickerPressed(forward: true, at: Date(), source: .bridge)
         let show = try await backend.poll().show
         #expect(show?.currentSlide == 2 && show?.buildPosition == 0)
+    }
+
+    /// After a hidden slide, feedback gives the number Keynote shows; the real index stays internal.
+    @Test func reportsKeynotesNumberAfterAHiddenSlide() async throws {
+        fake.configure(deck: "", movie: "", skipped: "false,true,false,false")
+        fake.set(ordinal: 2) // Keynote's slide 2 is the real slide 3
+        let show = try await backend.poll().show
+        #expect(show?.currentSlide == 3 && show?.displaySlide == 2)
     }
 
     /// A Companion button sending both KeyPoint's next and a PerfectCue Forward is one click.
