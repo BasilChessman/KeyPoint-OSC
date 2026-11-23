@@ -72,7 +72,7 @@ The file actions only work after **Allow file open/close over OSC** is turned on
 | Media time is an estimate (Keynote) | | Amber |
 | Clicker keys | Listening, on, or on but missing Input Monitoring | Green |
 | PerfectCue bridge | Connected, on, or on but not connected | Green |
-| Current app supports | A feature, for example media control, sections, black/white screen. Use it to grey out buttons the app in use can't do. | Green |
+| Current app supports | A feature, for example media control, sections, black/white screen. Use it to gray out buttons the app in use can't do. | Green |
 | File access is enabled on the Mac | | Green |
 
 ### Variables

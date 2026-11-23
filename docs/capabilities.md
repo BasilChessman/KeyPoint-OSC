@@ -44,7 +44,7 @@ In-process NSAppleScript or ScriptingBridge from the Swift app should be faster 
 3. **PowerPoint go-to-slide needs a workaround**: the menu route (preferred, behind the Accessibility opt-in) with restart-at-N as the no-permission fallback. Report the method in the capability list.
 4. **Build position is ours to track** in both backends (count our next/previous calls, reset when the slide changes). Mark it "estimated" if someone clicks on the Mac.
 5. **UI-scripting features** (Keynote black/white, PowerPoint go-to via menu) go behind one "Accessibility features" opt-in. Never send keystrokes unless a show window is confirmed to exist. During this spike, keystrokes sent while no show was running went to the editor; they did no harm this time, but the risk is real.
-6. **Unsupported** (reported in the capability list so Companion can grey them out): Keynote sections and media (Keynote build counts and media time came later, from the saved file). Laser pointer on both. PowerPoint media duration (unless added from the file).
+6. **Unsupported** (reported in the capability list so Companion can gray them out): Keynote sections and media (Keynote build counts and media time came later, from the saved file). Laser pointer on both. PowerPoint media duration (unless added from the file).
 7. **Permissions seen**: Automation prompt per target app on first use (Keynote 15 is its own target app, see below). Accessibility for UI features. Screen Recording not needed.
 8. **Sandboxing**: both apps refused some saves to a scripted location (Keynote's in-place save failed with "could not be saved"; a first PowerPoint save silently didn't write). The helper app shouldn't depend on the presentation apps writing files.
 
